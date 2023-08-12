@@ -50,12 +50,6 @@ sudo apt install paraview
 sudo apt install vlc
 ```
 
-On WSL systems, OpenGL is not installed by default. This is needed by gmsh and needs to be installed. For a fresh WSL installation using Ubuntu, the following will enable OpenGL for gmsh.
-```bash
-sudo apt update
-sudo apt upgrade
-sudo apt install mesa-utils
-```
 
 ## Files
 
