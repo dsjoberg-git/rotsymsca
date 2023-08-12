@@ -31,7 +31,7 @@ mamba install fenics-dolfinx=0.6.0 mpich petsc=*=complex*
 This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. 
 
 ```bash
-mamba install scipy matplotlib numba python-gmsh mpi4py
+mamba install scipy matplotlib numba python-gmsh mpi4py miepython
 pip install imageio[ffmpeg]
 ```
 
@@ -54,4 +54,4 @@ sudo apt install mesa-utils
 
 ## Verification
 
-The script ```verification.py``` 
+The script ```verification.py``` runs a sphere verification case using ```miepython``` as reference code. 
