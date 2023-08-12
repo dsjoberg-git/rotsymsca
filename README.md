@@ -25,13 +25,18 @@ Having activated the fe2ms environment, the following will install fenicsx there
 ```bash
 mamba install fenics-dolfinx=0.6.0 mpich petsc=*=complex*
 ```
+However, in current builds there seem to be some issues with basix data structures. Requesting explicit builds as below seems to work.
+
+```bash
+mamba install fenics-dolfinx=0.6.0=*py310he6dc2dd_1 fenics-basix=0.6.0=*py310hdf3cbec_0 mpich petsc=*=complex*
+```
 
 ### Install other Python packages
 
 This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. 
 
 ```bash
-mamba install scipy matplotlib numba python-gmsh mpi4py miepython
+mamba install scipy matplotlib python-gmsh=4.10.5 pyvista pyvistaqt miepython
 pip install imageio[ffmpeg]
 ```
 
@@ -52,6 +57,13 @@ sudo apt upgrade
 sudo apt install mesa-utils
 ```
 
-## Verification
+## Files
 
-The script ```verification.py``` runs a sphere verification case using ```miepython``` as reference code. 
+- ```mesh_rotsymradome.py``` sets up the mesh for two cases: an ogive radome or a sphere (PEC or material). The absorbing boundary is a PML, either spherical or cylindrical. The ogive radome can penetrate the cylindrical PML, enabling simulating a semi-infinite fuselage.
+- ```rotsymsca.py``` is the main simulation code.
+- ```verification.py``` runs a sphere verification case using ```miepython``` as reference code. 
+- ```radome_simulation.py``` is an example of how a parameterized simulation can be set up. 
+
+## Author
+
+Daniel Sjöberg, Lund University. [daniel.sjoberg@eit.lth.se](mailto:daniel.sjoberg@eit.lth.se)

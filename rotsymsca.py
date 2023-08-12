@@ -15,7 +15,6 @@ import functools
 import pyvista as pv
 import pyvistaqt as pvqt
 from scipy.special import jv, jvp
-#from npy_append_array import NpyAppendArray
 import os, sys
 
 # Set up physical constants
@@ -665,18 +664,17 @@ if __name__ == '__main__':
         
         meshdata = mesh_rotsymradome.CreateMeshSphere(comm=comm, model_rank=model_rank, radius_sphere=radius_sphere, radius_farfield=radius_farfield, radius_domain=radius_domain, radius_pml=radius_pml, h=h, pec=pec, visualize=False, PMLcylindrical=PMLcylindrical)
     else:
-        factor = 2.5
         material_epsr = 3*(1 - 0.01j)
         w = 10*lambda0
         antenna_taper = lambda x: np.cos(x[0]/(w/2)*np.pi/2)
         
-        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h/factor, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, MetalBase=MetalBase, t=lambda0)
+        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, MetalBase=MetalBase, t=lambda0)
 
 #    ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
 #    mesh_rotsymradome.PlotMeshPartition(comm, model_rank, meshdata.mesh, ghost_ff_facets, meshdata.boundaries, meshdata.boundary_markers['farfield'])
 #    exit()
 
-    p = RotSymProblem(meshdata, material_epsr=material_epsr, f0=f0*factor)
+    p = RotSymProblem(meshdata, material_epsr=material_epsr, f0=f0)
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
                  theta_inc=theta_inc, phi_inc=phi_inc,
                  E0theta_ant=E0theta_ant, E0phi_ant=E0phi_ant,
