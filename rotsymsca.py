@@ -15,7 +15,7 @@ import functools
 import pyvista as pv
 import pyvistaqt as pvqt
 from scipy.special import jv, jvp
-from npy_append_array import NpyAppendArray
+#from npy_append_array import NpyAppendArray
 import os, sys
 
 # Set up physical constants
