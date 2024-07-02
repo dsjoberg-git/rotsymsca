@@ -1,3 +1,5 @@
+(minor change)
+
 # rotsymsca
 Code for simulation of electromagnetic scattering from rotationally symmetric objects. It is based on [FEniCSx](https://fenicsproject.org/), an open source finite element computing platform.
 
