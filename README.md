@@ -1,6 +1,8 @@
 # rotsymsca
 Code for simulation of electromagnetic scattering from rotationally symmetric objects. It is based on [FEniCSx](https://fenicsproject.org/), an open source finite element computing platform.
 
+This particular version was prepared to compute the results for EuCAP 2024.
+
 ## Installation
 
 The installation instructions below are based on the instructions for installing [fe2ms](https://github.com/nwingren/fe2ms), a FE-BI hybrid code developed by Niklas Wingren. 
