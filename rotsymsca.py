@@ -16,6 +16,7 @@ import pyvista as pv
 import pyvistaqt as pvqt
 from scipy.special import jv, jvp
 import os, sys
+import time
 
 # Set up physical constants
 from scipy.constants import c as c0
@@ -51,6 +52,9 @@ class RotSymProblem():
                  mur_bkg=1,           # Permeability of the background medium
                  material_epsr=1+0j,  # Permittivity of scatterer material
                  material_mur=1+0j,   # Permeability of scatterer material
+                 CFRP_epsr=1+0j,      # Permittivity of CFRP fuselage
+                 CFRP_mur=1+0j,       # Permeability of CFRP fuselage
+                 transition_volumefraction_CFRP=None,
                  degree=3,            # Degree of finite elements
                  comm=MPI.COMM_WORLD, # MPI communicator
                  model_rank=0,        # Model rank for saving, plotting etc
@@ -65,6 +69,12 @@ class RotSymProblem():
         self.etar_bkg = np.sqrt(mur_bkg/epsr_bkg) # Background relative wave impedance
         self.material_epsr = material_epsr
         self.material_mur = material_mur
+        self.CFRP_epsr = CFRP_epsr
+        self.CFRP_mur = CFRP_mur
+        if transition_volumefraction_CFRP == None:
+            self.transition_volumefraction_CFRP = lambda x: np.zeros(x.shape[1])
+        else:
+            self.transition_volumefraction_CFRP = transition_volumefraction_CFRP
         self.degree = degree
         self.ghost_ff_facets = ghost_ff_facets
 
@@ -76,8 +86,10 @@ class RotSymProblem():
 
         self.freespace_marker = meshdata.subdomain_markers['freespace']
         self.material_marker = meshdata.subdomain_markers['material']
+        self.transition_marker = meshdata.subdomain_markers['transition']
+        self.CFRP_marker = meshdata.subdomain_markers['CFRP']
         self.pml_marker = meshdata.subdomain_markers['pml']
-        self.pml_material_overlap_marker = meshdata.subdomain_markers['pml_material_overlap']
+        self.pml_CFRP_overlap_marker = meshdata.subdomain_markers['pml_CFRP_overlap']
 
         self.pec_surface_marker = meshdata.boundary_markers['pec']
         self.antenna_surface_marker = meshdata.boundary_markers['antenna']
@@ -128,11 +140,11 @@ class RotSymProblem():
         # Create measures for subdomains and surfaces
         self.dx = ufl.Measure('dx', domain=self.mesh, subdomain_data=self.subdomains, metadata={'quadrature_degree': 5})
         if self.material_marker >= 0:
-            self.dx_dom = self.dx((self.freespace_marker, self.material_marker))
+            self.dx_dom = self.dx((self.freespace_marker, self.material_marker, self.transition_marker, self.CFRP_marker))
         else:
             self.dx_dom = self.dx(self.freespace_marker)
-        if self.pml_material_overlap_marker >= 0:
-            self.dx_pml = self.dx((self.pml_marker, self.pml_material_overlap_marker))
+        if self.pml_CFRP_overlap_marker >= 0:
+            self.dx_pml = self.dx((self.pml_marker, self.pml_CFRP_overlap_marker))
         else:
             self.dx_pml = self.dx(self.pml_marker)
         self.ds = ufl.Measure('ds', domain=self.mesh, subdomain_data=self.boundaries)
@@ -161,19 +173,33 @@ class RotSymProblem():
     def InitializeMaterial(self):
         """Set up material parameters."""
         Wspace = dolfinx.fem.FunctionSpace(self.mesh, ("DG", 0))
+        # Set up transition region
+        self.epsr_transition = dolfinx.fem.Function(Wspace)
+        self.mur_transition = dolfinx.fem.Function(Wspace)
+        self.epsr_transition.interpolate(lambda x: self.transition_volumefraction_CFRP(x)*self.CFRP_epsr + (1 - self.transition_volumefraction_CFRP(x))*self.material_epsr)
+        self.mur_transition.interpolate(lambda x: self.transition_volumefraction_CFRP(x)*self.CFRP_mur + (1 - self.transition_volumefraction_CFRP(x))*self.material_mur)
+        # Set up homogeneous material regions
         self.epsr = dolfinx.fem.Function(Wspace)
         self.mur = dolfinx.fem.Function(Wspace)
         self.epsr.x.array[:] = self.epsr_bkg
         self.mur.x.array[:] = self.mur_bkg
         material_cells = self.subdomains.find(self.material_marker)
         material_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=material_cells)
+        transition_cells = self.subdomains.find(self.transition_marker)
+        transition_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=transition_cells)
+        CFRP_cells = self.subdomains.find(self.CFRP_marker)
+        CFRP_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=CFRP_cells)
         self.epsr.x.array[material_dofs] = self.material_epsr
         self.mur.x.array[material_dofs] = self.material_mur
-        if self.pml_material_overlap_marker >= 0:
-            material_cells = self.subdomains.find(self.pml_material_overlap_marker)
-            material_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=material_cells)
-            self.epsr.x.array[material_dofs] = self.material_epsr
-            self.mur.x.array[material_dofs] = self.material_mur
+        self.epsr.x.array[transition_dofs] = self.epsr_transition.x.array[transition_dofs]
+        self.mur.x.array[transition_dofs] = self.mur_transition.x.array[transition_dofs]
+        self.epsr.x.array[CFRP_dofs] = self.CFRP_epsr
+        self.mur.x.array[CFRP_dofs] = self.CFRP_mur
+        if self.pml_CFRP_overlap_marker >= 0:
+            CFRP_cells = self.subdomains.find(self.pml_CFRP_overlap_marker)
+            CFRP_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=CFRP_cells)
+            self.epsr.x.array[CFRP_dofs] = self.CFRP_epsr
+            self.mur.x.array[CFRP_dofs] = self.CFRP_mur
             
         
     def InitializePML(self):
@@ -410,7 +436,7 @@ class RotSymProblem():
         if self.material_marker >= 0: # Indicate material region
             V = dolfinx.fem.FunctionSpace(self.mesh, ('DG', 0))
             u = dolfinx.fem.Function(V)
-            material_cells = self.subdomains.find(self.material_marker)
+            material_cells = np.concatenate((self.subdomains.find(self.material_marker), self.subdomains.find(self.transition_marker), self.subdomains.find(self.CFRP_marker)))
             material_dofs = dolfinx.fem.locate_dofs_topological(V, entity_dim=tdim, entities=material_cells)
             u.x.array[:] = 0
             u.x.array[material_dofs] = 0.25 # Used as opacity value later
@@ -433,7 +459,8 @@ class RotSymProblem():
 
         if self.comm.rank == self.model_rank:
             if animate == True:
-                plotter = pvqt.BackgroundPlotter(shape=(1,3), auto_update=True)
+#                plotter = pvqt.BackgroundPlotter(shape=(1,3), auto_update=True)
+                plotter = pvqt.BackgroundPlotter(shape=(1,3), window_size=(3840,2160), auto_update=True)
             else:
                 plotter = pv.Plotter(shape=(1,3))
 
@@ -584,6 +611,9 @@ class RotSymProblem():
         )
         
         farfield_amplitudes = np.zeros((2, Nangles), dtype=complex)
+        logfilename = f'mylog_rank{self.comm.rank}.txt'
+        with open(logfilename, 'w') as f:
+            f.write(f'{time.asctime()}: Start of simulation at rank {self.comm.rank}\n')
         for m in mvec:
             print(f'Rank {self.comm.rank}: m = {m}')
             sys.stdout.flush()
@@ -615,6 +645,8 @@ class RotSymProblem():
             with dolfinx.common.Timer() as t:
                 Es_m_h = problem.solve()
                 print(f'Rank {self.comm.rank} solve time: {t.elapsed()[0]}')
+                with open(logfilename, 'a') as f:
+                    f.write(f'{time.asctime()}: At rank {self.comm.rank}: m = {m}, solve time: {t.elapsed()[0]}\n')
                 sys.stdout.flush()
 
             Esca.x.array[:] += Es_m_h.x.array[:]*np.exp(-1j*m*phi_out)
@@ -628,6 +660,8 @@ class RotSymProblem():
                     farfield_amplitudes[0, n] += ff_theta
                     farfield_amplitudes[1, n] += ff_phi
                 print(f'Rank {self.comm.rank} farfield time: {t.elapsed()[0]}')
+                with open(logfilename, 'a') as f:
+                    f.write(f'{time.asctime()}: At rank {self.comm.rank}: m = {m}, farfield time: {t.elapsed()[0]}\n')
                 sys.stdout.flush()
 
         return(mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes)
@@ -650,7 +684,7 @@ if __name__ == '__main__':
     h = 0.1*lambda0
     PMLcylindrical = True
     PMLpenetrate = True
-    MetalBase = True
+    MetalBase = False
     
     verification_case = False
     if verification_case: # Sphere case
@@ -665,16 +699,21 @@ if __name__ == '__main__':
         meshdata = mesh_rotsymradome.CreateMeshSphere(comm=comm, model_rank=model_rank, radius_sphere=radius_sphere, radius_farfield=radius_farfield, radius_domain=radius_domain, radius_pml=radius_pml, h=h, pec=pec, visualize=False, PMLcylindrical=PMLcylindrical)
     else:
         material_epsr = 3*(1 - 0.01j)
+        CFRP_epsr = 100 - 72j
         w = 10*lambda0
+        t = lambda0/10
+        Htransition = lambda0
+        transition_volumefraction_CFRP = lambda x: -x[1]/Htransition
+        transition_volumefraction_CFRP = lambda x: 0*np.ones(x.shape[1])
         antenna_taper = lambda x: np.cos(x[0]/(w/2)*np.pi/2)
         
-        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, MetalBase=MetalBase, t=lambda0)
+        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, w=w, t=t, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, MetalBase=MetalBase)
 
 #    ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
 #    mesh_rotsymradome.PlotMeshPartition(comm, model_rank, meshdata.mesh, ghost_ff_facets, meshdata.boundaries, meshdata.boundary_markers['farfield'])
 #    exit()
 
-    p = RotSymProblem(meshdata, material_epsr=material_epsr, f0=f0)
+    p = RotSymProblem(meshdata, material_epsr=material_epsr, CFRP_epsr=CFRP_epsr, f0=f0, transition_volumefraction_CFRP=transition_volumefraction_CFRP)
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
                  theta_inc=theta_inc, phi_inc=phi_inc,
                  E0theta_ant=E0theta_ant, E0phi_ant=E0phi_ant,
