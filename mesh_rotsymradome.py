@@ -83,7 +83,7 @@ def CheckGhostFarfieldFacets(comm, model_rank, mesh, boundaries, farfield_surfac
             print('Ghost farfield facets detected, farfield results may be inaccurate. Consider making small changes in location of far field surface, mesh size, or use different number of processors.')
             print(f'ghost_ff_facets = {ghost_ff_facets}')
             sys.stdout.flush()
-    return(ghost_ff_facets)
+    return ghost_ff_facets
 
 def PlotMeshPartition(comm, model_rank, mesh, ghost_ff_facets, boundaries, farfield_surface_marker):
     V = dolfinx.fem.FunctionSpace(mesh, ('CG', 1))
@@ -131,7 +131,7 @@ def partitioner(comm, n, m, topo):
         offsets.append(len(dests))
     dests = np.array(dests, dtype=np.int32)
     offsets = np.array(offsets, dtype=np.int32)
-    return(dolfinx.cpp.graph.AdjacencyList_int32(dests))
+    return dolfinx.cpp.graph.AdjacencyList_int32(dests)
     
 def CreateMeshOgive(
         comm=MPI.COMM_WORLD,     # MPI communicator
@@ -153,7 +153,7 @@ def CreateMeshOgive(
         visualize=False,         # Whether to call gmsh to visualize mesh
         filename='ogivemesh.msh' # Name of file to save mesh in
 ): 
-    """Create the mesh using gmsh."""
+    """Create the mesh using gmsh. The geometry is an ogive radome, with or without an antenna disk, which can be free floating or on top of a metal block. The radome can extend into the surrounding PML, enabling the simulation of a semi-infinite structure."""
 
     # Compute a few shape parameters
     Rb = w/2 + d0 + d                           # Outer radome radius
@@ -212,44 +212,32 @@ def CreateMeshOgive(
         # Straight part of radome
         radome_bottom_inner = gmsh.model.occ.addPoint(Ra, -H, 0)
         radome_bottom_outer = gmsh.model.occ.addPoint(Rb, -H, 0)
-#        radome_mid_inner = gmsh.model.occ.addPoint(Ra, -t, 0)
-#        radome_mid_outer = gmsh.model.occ.addPoint(Rb, -t, 0)
         radome_transition_inner = gmsh.model.occ.addPoint(Ra, -Htransition, 0)
         radome_transition_outer = gmsh.model.occ.addPoint(Rb, -Htransition, 0)
         
         # Join radome curves
         radome_join1 = gmsh.model.occ.addLine(radome_outer_points[-1], radome_inner_points[-1])
-#        radome_join2a = gmsh.model.occ.addLine(radome_inner_points[0], radome_mid_inner)
-#        radome_join2b = gmsh.model.occ.addLine(radome_mid_inner, radome_transition_inner)
-        radome_join2b = gmsh.model.occ.addLine(radome_inner_points[0], radome_transition_inner)
-        radome_join2c = gmsh.model.occ.addLine(radome_transition_inner, radome_bottom_inner)
+        radome_join2a = gmsh.model.occ.addLine(radome_inner_points[0], radome_transition_inner)
+        radome_join2b = gmsh.model.occ.addLine(radome_transition_inner, radome_bottom_inner)
         radome_join3 = gmsh.model.occ.addLine(radome_bottom_inner, radome_bottom_outer)
         radome_join4a = gmsh.model.occ.addLine(radome_bottom_outer, radome_transition_outer)
-#        radome_join4b = gmsh.model.occ.addLine(radome_transition_outer, radome_mid_outer)
-#        radome_join4c = gmsh.model.occ.addLine(radome_mid_outer, radome_outer_points[0])
         radome_join4b = gmsh.model.occ.addLine(radome_transition_outer, radome_outer_points[0])
         transition_join1 = gmsh.model.occ.addLine(radome_outer_points[0], radome_inner_points[0])
         transition_join2 = gmsh.model.occ.addLine(radome_transition_inner, radome_transition_outer)
         radome_loop = gmsh.model.occ.addCurveLoop([radome_outer_curve, radome_join1, radome_inner_curve, transition_join1])
-#        transition_loop = gmsh.model.occ.addCurveLoop([radome_join2a, radome_join2b, transition_join2, radome_join4b, radome_join4c, transition_join1])
-        transition_loop = gmsh.model.occ.addCurveLoop([radome_join2b, transition_join2, radome_join4b, transition_join1])
-        CFRP_loop = gmsh.model.occ.addCurveLoop([radome_join2c, radome_join3, radome_join4a, transition_join2])
+        transition_loop = gmsh.model.occ.addCurveLoop([radome_join2a, transition_join2, radome_join4b, transition_join1])
+        hull_loop = gmsh.model.occ.addCurveLoop([radome_join2b, radome_join3, radome_join4a, transition_join2])
 
-        # Create domains for radome, transition, and CFRP
+        # Create domains for radome, transition, and hull
         radome_domain = gmsh.model.occ.addPlaneSurface([radome_loop])
         transition_domain = gmsh.model.occ.addPlaneSurface([transition_loop])
-        CFRP_domain = gmsh.model.occ.addPlaneSurface([CFRP_loop])
+        hull_domain = gmsh.model.occ.addPlaneSurface([hull_loop])
 
         # Create antenna domain, seems crucial to reuse points defined in radome
         if AntennaMetalBase: # Antenna surface connected to a metal fuselage
             antenna_point1 = gmsh.model.occ.addPoint(0, 0, 0)
             antenna_point2 = gmsh.model.occ.addPoint(w/2, 0, 0)
-#            antenna_point3 = gmsh.model.occ.addPoint(w/2, -t, 0)
             antenna_point3 = gmsh.model.occ.addPoint(w/2, -Htransition, 0)
-#            antenna_point4 = gmsh.model.occ.addPoint(Rb, -t, 0)
-#            antenna_point5 = gmsh.model.occ.addPoint(Rb, -H, 0)
-#            antenna_point4a = radome_mid_inner
-#            antenna_point4b = radome_mid_outer
             antenna_point4a = radome_transition_inner
             antenna_point4b = radome_transition_outer
             antenna_point5 = radome_bottom_outer
@@ -258,8 +246,7 @@ def CreateMeshOgive(
             antenna_curve = gmsh.model.occ.addLine(antenna_point1, antenna_point2)
             pec_curve1 = gmsh.model.occ.addLine(antenna_point2, antenna_point3)
             pec_curve2 = gmsh.model.occ.addLine(antenna_point3, antenna_point4a)
-#            pec_curve3 = gmsh.model.occ.addLine(antenna_point4a, antenna_point4b)
-            pec_curve3 = transition_join2
+            pec_curve3 = gmsh.model.occ.addLine(antenna_point4a, antenna_point4b)
             pec_curve4 = gmsh.model.occ.addLine(antenna_point4b, antenna_point5)
             pec_curve = [pec_curve1, pec_curve2, pec_curve3, pec_curve4]
             antenna_join1 = gmsh.model.occ.addLine(antenna_point5, antenna_point6)
@@ -270,7 +257,7 @@ def CreateMeshOgive(
 
             # Define functions to identify antenna and PEC regions geometrically
             def AntennaSurface(CoM):
-                return(np.allclose(CoM, [w/4, 0, 0]))
+                return np.allclose(CoM, [w/4, 0, 0])
             def PECSurface(CoM):
                 return np.allclose(CoM, [w/2, -Htransition/2, 0]) or np.allclose(CoM, [(w/2 + Ra)/2, -Htransition, 0]) or np.allclose(CoM, [(Ra + Rb)/2, -Htransition, 0]) or np.allclose(CoM, [Rb, (-Htransition - H + PML.d)/2, 0]) or np.allclose(CoM, [Rb, -H + PML.d/2, 0])
             
@@ -290,9 +277,9 @@ def CreateMeshOgive(
 
             # Define functions to identify antenna and PEC regions geometrically
             def AntennaSurface(CoM):
-                return(np.allclose(CoM, [w/4, 0, 0]))
+                return np.allclose(CoM, [w/4, 0, 0])
             def PECSurface(CoM):
-                return(np.allclose(CoM, [w/2, -t/2, 0]) or np.allclose(CoM, [w/4, -t, 0]))
+                return np.allclose(CoM, [w/2, -t/2, 0]) or np.allclose(CoM, [w/4, -t, 0])
 
         gmsh.model.occ.synchronize()
         
@@ -327,10 +314,10 @@ def CreateMeshOgive(
             pml_boundary = [pml_boundary]
             farfield_boundary = [farfield_boundary]
             def PMLSurface(CoM):
-                return(np.allclose(CoM[0], 2*PML.radius/np.pi))
+                return np.allclose(CoM[0], 2*PML.radius/np.pi)
             CoM1 = gmsh.model.occ.getCenterOfMass(fdim, farfield_boundary[0])
             def FarfieldSurface(CoM):
-                return np.allclose(CoM, CoM1) 
+                return np.allclose(CoM, CoM1)
             
         else: # Cylindrical PML
             if not PMLpenetrate: # Far field boundary parallel to PML everywhere
@@ -426,119 +413,75 @@ def CreateMeshOgive(
                     return np.allclose(CoM, CoM1) or np.allclose(CoM, CoM2)
 
             def PMLSurface(CoM):
-                return(np.allclose(CoM[0], PML.rho) or np.allclose(CoM[1], PML.zt) or np.allclose(CoM[1], PML.zb))
+                return np.allclose(CoM[0], PML.rho) or np.allclose(CoM[1], PML.zt) or np.allclose(CoM[1], PML.zb)
             
 #        gmsh.model.occ.synchronize() # Seems to cause trouble with gmsh 4.12.2, according to experiments 240703
 
         # Fragment radome domain from inner domain and PML
         if PMLpenetrate: # Take several fragmentations into account
-            if False: # Original code, remove later
-                foo = gmsh.model.occ.fragment([(tdim, inner_domain), (tdim, pml_domain)], [(tdim, radome_domain), (tdim, transition_domain), (tdim, CFRP_domain)])
-                radome_domain_dimtags = foo[1][-3]
-                transition_domain_dimtags =foo[1][-2]
-                CFRP_domain_dimtags = foo[1][-1]
-                tmp_dimtags = radome_domain_dimtags + transition_domain_dimtags + CFRP_domain_dimtags
-                # Create lists of dimtags not containing the tool (the
-                # radome), since we cannot set multiple tags on the cells
-                inner_domain_dimtags = [x for x in foo[1][0] if x not in tmp_dimtags]
-                outer_domain_dimtags = [(tdim, outer_domain)]
-                pml_domain_dimtags = [x for x in foo[1][1] if x not in tmp_dimtags]
-                pml_CFRP_overlap_dimtags = [x for x in foo[1][1] if x in tmp_dimtags]
-                CFRP_domain_dimtags = [x for x in CFRP_domain_dimtags if x not in pml_CFRP_overlap_dimtags]
-#                farfield_boundary_dimtags = [(fdim, x) for x in farfield_boundary]
-            else:
-                outDimTags, outDimTagsMap= gmsh.model.occ.fragment([(tdim, inner_domain), (tdim, pml_domain)], [(tdim, radome_domain), (tdim, transition_domain), (tdim, CFRP_domain)])
-                radome_domain_dimtags = outDimTagsMap[-3]
-                transition_domain_dimtags = outDimTagsMap[-2]
-                CFRP_domain_dimtags = outDimTagsMap[-1]
-                tmp_dimtags = radome_domain_dimtags + transition_domain_dimtags + CFRP_domain_dimtags
-                # Create lists of dimtags not containing the tool (the
-                # radome), since we cannot set multiple tags on the cells
-                inner_domain_dimtags = [x for x in outDimTagsMap[0] if x not in tmp_dimtags]
-                outer_domain_dimtags = [(tdim, outer_domain)]
-                pml_domain_dimtags = [x for x in outDimTagsMap[1] if x not in tmp_dimtags]
-                pml_CFRP_overlap_dimtags = [x for x in outDimTagsMap[1] if x in tmp_dimtags]
-                CFRP_domain_dimtags = [x for x in CFRP_domain_dimtags if x not in pml_CFRP_overlap_dimtags]
-#                farfield_boundary_dimtags = [(fdim, x) for x in farfield_boundary]
+            outDimTags, outDimTagsMap= gmsh.model.occ.fragment([(tdim, inner_domain), (tdim, pml_domain)], [(tdim, radome_domain), (tdim, transition_domain), (tdim, hull_domain)])
+            radome_domain_dimtags = outDimTagsMap[-3]
+            transition_domain_dimtags = outDimTagsMap[-2]
+            hull_domain_dimtags = outDimTagsMap[-1]
+            tmp_dimtags = radome_domain_dimtags + transition_domain_dimtags + hull_domain_dimtags
+            # Create lists of dimtags not containing the tool (the
+            # radome), since we cannot set multiple tags on the cells
+            inner_domain_dimtags = [x for x in outDimTagsMap[0] if x not in tmp_dimtags]
+            outer_domain_dimtags = [(tdim, outer_domain)]
+            pml_domain_dimtags = [x for x in outDimTagsMap[1] if x not in tmp_dimtags]
+            pml_hull_overlap_dimtags = [x for x in outDimTagsMap[1] if x in tmp_dimtags]
+            hull_domain_dimtags = [x for x in hull_domain_dimtags if x not in pml_hull_overlap_dimtags]
+            farfield_boundary_dimtags = [(fdim, x) for x in farfield_boundary]
         else: # The radome is completely enclosed in the inner domain
-            if False: # Original code, remove later
-                foo = gmsh.model.occ.fragment([(tdim, inner_domain)], [(tdim, radome_domain)])
-                radome_domain_dimtags = foo[1][-1]
-                # Create lists of dimtags not containing the tool (the radome)
-                inner_domain_dimtags = [x for x in foo[1][0] if x not in radome_domain_dimtags]
-                outer_domain_dimtags = [(tdim, outer_domain)]
-                pml_domain_dimtags = [(tdim, pml_domain)]
-#                farfield_boundary_dimtags = [(fdim, x) for x in farfield_boundary]
-                pml_radome_overlap_dimtags = [(tdim, -1)]
-            else:
-                outDimTags, outDimTagsMap = gmsh.model.occ.fragment([(tdim, inner_domain)], [(tdim, radome_domain), (tdim, transition_domain), (tdim, CFRP_domain)])
-                radome_domain_dimtags = outDimTagsMap[-3]
-                transition_domain_dimtags = outDimTagsMap[-2]
-                CFRP_domain_dimtags = outDimTagsMap[-1]
-                tmp_dimtags = radome_domain_dimtags + transition_domain_dimtags + CFRP_domain_dimtags
-                # Create lists of dimtags not containing the tool (the radome)
-                inner_domain_dimtags = [x for x in outDimTagsMap[0] if x not in tmp_dimtags]
-                outer_domain_dimtags = [(tdim, outer_domain)]
-                pml_domain_dimtags = [(tdim, pml_domain)]
-#                farfield_boundary_dimtags = [(fdim, x) for x in farfield_boundary]
-                pml_CFRP_overlap_dimtags = [(tdim, -1)]
+            outDimTags, outDimTagsMap = gmsh.model.occ.fragment([(tdim, inner_domain)], [(tdim, radome_domain), (tdim, transition_domain), (tdim, hull_domain)])
+            radome_domain_dimtags = outDimTagsMap[-3]
+            transition_domain_dimtags = outDimTagsMap[-2]
+            hull_domain_dimtags = outDimTagsMap[-1]
+            tmp_dimtags = radome_domain_dimtags + transition_domain_dimtags + hull_domain_dimtags
+            # Create lists of dimtags not containing the tool (the radome)
+            inner_domain_dimtags = [x for x in outDimTagsMap[0] if x not in tmp_dimtags]
+            outer_domain_dimtags = [(tdim, outer_domain)]
+            pml_domain_dimtags = [(tdim, pml_domain)]
+            farfield_boundary_dimtags = [(fdim, x) for x in farfield_boundary]
+            pml_hull_overlap_dimtags = [(tdim, -1)]
         gmsh.model.occ.synchronize()
 
         # Cut away the antenna region from the inner domain
         if AntennaMetalBase: # Antenna + base also intersects radome and PML
-            if False:
-                inner_domain_dimtags, _ = gmsh.model.occ.cut(inner_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
-                transition_domain_dimtags, _ = gmsh.model.occ.cut(transition_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
-#                CFRP_domain_dimtags, _ = gmsh.model.occ.cut(CFRP_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
-                pml_domain_dimtags, _ = gmsh.model.occ.cut(pml_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
-#                pml_CFRP_overlap_dimtags, _ = gmsh.model.occ.cut(pml_CFRP_overlap_dimtags, [(tdim, antenna_domain)], removeTool=False)
-                gmsh.model.occ.remove(CFRP_domain_dimtags, recursive=True)
-                gmsh.model.occ.remove(pml_CFRP_overlap_dimtags, recursive=True)
-                gmsh.model.occ.remove([(tdim, antenna_domain)], recursive=True)
-            elif True:
-                outDimTags, outDimTagsMap = gmsh.model.occ.fragment(inner_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
-                inner_domain_dimtags = [(tdim, x[1]) for x in outDimTags if x not in outDimTagsMap[-1]]
-                gmsh.model.occ.remove([(tdim, x[1]) for x in outDimTagsMap[2]], recursive=True)
-                outDimTags, outDimTagsMap = gmsh.model.occ.fragment(pml_domain_dimtags, [(tdim, antenna_domain)], removeTool=True)
-                pml_domain_dimtags = [(tdim, x[1]) for x in outDimTags if x not in outDimTagsMap[-1]]
-                gmsh.model.occ.remove([(tdim, x[1]) for x in outDimTagsMap[-1]], recursive=True)
-                gmsh.model.occ.remove(CFRP_domain_dimtags, recursive=True)
-                gmsh.model.occ.remove(pml_CFRP_overlap_dimtags, recursive=True)
-            else:
-                print(inner_domain_dimtags, transition_domain_dimtags, CFRP_domain_dimtags, pml_CFRP_overlap_dimtags, pml_domain_dimtags)
-                outDimTags, outDimTagsMap = gmsh.model.occ.fragment(inner_domain_dimtags + transition_domain_dimtags + CFRP_domain_dimtags + pml_CFRP_overlap_dimtags + pml_domain_dimtags, [(tdim, antenna_domain)])
-                print(outDimTags, outDimTagsMap)
-                inner_domain_dimtags = [(tdim, x[1]) for x in outDimTagsMap[0] + outDimTagsMap[1] if x not in outDimTagsMap[-1]]
-                transition_domain_dimtags = [(tdim, x[1]) for x in outDimTagsMap[2] if x not in outDimTagsMap[-1]]
-                CFRP_domain_dimtags = [(tdim, x[1]) for x in outDimTagsMap[3] if x not in outDimTagsMap[-1]]
-                pml_CFRP_overlap_dimtags = [(tdim, x[1]) for x in outDimTagsMap[4] if x not in outDimTagsMap[-1]]
-                pml_domain_dimtags = [(tdim, x[1]) for x in outDimTagsMap[5] + outDimTagsMap[6] if x not in outDimTagsMap[-1]]
-                gmsh.model.occ.remove(outDimTagsMap[-1], recursive=True)
+            outDimTags, outDimTagsMap = gmsh.model.occ.fragment(inner_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
+            inner_domain_dimtags = [(tdim, x[1]) for x in outDimTags if x not in outDimTagsMap[-1]]
+            gmsh.model.occ.remove([(tdim, x[1]) for x in outDimTagsMap[2]], recursive=True)
+            outDimTags, outDimTagsMap = gmsh.model.occ.fragment(pml_domain_dimtags, [(tdim, antenna_domain)], removeTool=True)
+            pml_domain_dimtags = [(tdim, x[1]) for x in outDimTags if x not in outDimTagsMap[-1]]
+            gmsh.model.occ.remove([(tdim, x[1]) for x in outDimTagsMap[-1]], recursive=True)
+            gmsh.model.occ.remove(hull_domain_dimtags, recursive=True)
+            gmsh.model.occ.remove(pml_hull_overlap_dimtags, recursive=True)
         elif Antenna: # Antenna completely inside inner domain
             inner_domain_dimtags, _ = gmsh.model.occ.cut(inner_domain_dimtags, [(tdim, antenna_domain)], removeTool=False)
             gmsh.model.occ.remove([(tdim, antenna_domain)], recursive=True)
+
         gmsh.model.occ.synchronize()
 
         # Create physical groups for domains
         freespace_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in inner_domain_dimtags+outer_domain_dimtags])
         material_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in radome_domain_dimtags])
         transition_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in transition_domain_dimtags])
-        CFRP_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in CFRP_domain_dimtags])
+        hull_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in hull_domain_dimtags])
         pml_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in pml_domain_dimtags])
         if PMLpenetrate and not AntennaMetalBase:
-            pml_CFRP_overlap_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in pml_CFRP_overlap_dimtags])
+            pml_hull_overlap_marker = gmsh.model.addPhysicalGroup(tdim, [x[1] for x in pml_hull_overlap_dimtags])
         else:
-            pml_CFRP_overlap_marker = -1
+            pml_hull_overlap_marker = -1
         subdomain_markers = {'freespace': freespace_marker,
                              'material': material_marker,
                              'transition': transition_marker,
-                             'CFRP': CFRP_marker,
+                             'hull': hull_marker,
                              'pml': pml_marker,
-                             'pml_CFRP_overlap': pml_CFRP_overlap_marker}
+                             'pml_hull_overlap': pml_hull_overlap_marker}
 
         # Create physical groups for antenna surfaces and far field
         # boundary. Based on geometry functions rather than gmsh
-        # entities except for far field (after many tries). 
+        # entities.
         axis_lines = []
         pec_surface = []
         antenna_surface = []
@@ -566,7 +509,6 @@ def CreateMeshOgive(
         else:
             pec_surface_marker = -1
             antenna_surface_marker = -1
-#        farfield_surface_marker = gmsh.model.addPhysicalGroup(fdim, [x[1] for x in farfield_boundary_dimtags])
         farfield_surface_marker = gmsh.model.addPhysicalGroup(fdim, farfield_surface)
         pml_surface_marker = gmsh.model.addPhysicalGroup(fdim, pml_surface)
         axis_marker = gmsh.model.addPhysicalGroup(fdim, axis_lines)
@@ -577,39 +519,13 @@ def CreateMeshOgive(
                             'pml': pml_surface_marker,
                             'axis': axis_marker}
 
-        # Refine mesh in CFRP and transition region
+        # Refine mesh in hull and transition region. Locate points by
+        # geometry rather than gmsh entities.
         tol = 1e-6
         if AntennaMetalBase:
             points_dimtags = gmsh.model.getEntitiesInBoundingBox(Ra-tol, -Htransition-tol, 0, Rb+tol, 0+tol, 0, dim=0)
         else:
             points_dimtags = gmsh.model.getEntitiesInBoundingBox(Ra-tol, -H-tol, 0, Rb+tol, 0+tol, 0, dim=0)
-        
-        
-#        if PMLpenetrate:
-#            if not AntennaMetalBase:
-#                surfs = [x[1] for x in pml_CFRP_overlap_dimtags + CFRP_domain_dimtags + transition_domain_dimtags]
-#            else:
-#                surfs = [x[1] for x in transition_domain_dimtags]
-#        else:
-#            surfs = [x[1] for x in CFRP_domain_dimtags + transition_domain_dimtags]
-#        curves = []
-#        for s in surfs:
-#            curves += gmsh.model.getAdjacencies(2, s)[1].tolist()
-#        points = []
-#        for c in curves:
-#            points += gmsh.model.getAdjacencies(1, c)[1].tolist()
-#        tol = 1e-6
-#        points_dimtags = gmsh.model.getEntitiesInBoundingBox(Ra-tol, -Htransition-tol, 0, Rb+tol, 0+tol, 0, dim=0)
-#        CoMs = [gmsh.model.occ.getCenterOfMass(0, p) for p in points]
-#        for p in gmsh.model.occ.getEntities(dim=0):
-#            if gmsh.model.occ.getCenterOfMass(0, p) in CoMs:
-#                if not p in points:
-#                    points += [p]
-#                    print('hej')
-#        points_dimtags = [(0, x) for x in points]
-#        print(surfs, curves, points, points_dimtags)
-#        gmsh.model.occ.mesh.setSize(points_dimtags, hfine)
-#        gmsh.model.occ.synchronize()
         gmsh.model.mesh.setSize(points_dimtags, hfine)
         
         # Generate mesh
@@ -634,7 +550,7 @@ def CreateMeshOgive(
 
     meshdata = MeshData(mesh=mesh, subdomains=subdomains, boundaries=boundaries, subdomain_markers=subdomain_markers, boundary_markers=boundary_markers, PML=PML, comm=comm, model_rank=model_rank)
 
-    return(meshdata)
+    return meshdata
 
 def CreateMeshSphere(
         comm=MPI.COMM_WORLD,        # MPI communicator
@@ -784,17 +700,17 @@ def CreateMeshSphere(
     gmsh.finalize()
 
     meshdata = MeshData(mesh=mesh, subdomains=subdomains, boundaries=boundaries, subdomain_markers=subdomain_markers, boundary_markers=boundary_markers, PML=PML, comm=comm, model_rank=model_rank)
-    return(meshdata)
+    return meshdata
 
 if __name__ == '__main__':
     # Create and visualize the mesh if run from the prompt
     if True:
-        meshdata = CreateMeshOgive(visualize=True, h=0.1*lambda0, PMLcylindrical=True, PMLpenetrate=False, Antenna=True, AntennaMetalBase=True, t=lambda0/4*8, Htransition=1*lambda0, hfine=0.01*lambda0)
+        meshdata = CreateMeshOgive(visualize=True, h=0.1*lambda0, PMLcylindrical=True, PMLpenetrate=False, Antenna=True, AntennaMetalBase=False, t=lambda0/4, Htransition=1*lambda0, hfine=0.01*lambda0)
     else:
         pec = True
         meshdata = CreateMeshSphere(pec=pec, visualize=True, PMLcylindrical=True, h=0.1)
 
-    if False:
+    if True:
         # Visualize mesh and dofs as handled by dolfinx
         import pyvista as pv
 
@@ -804,8 +720,9 @@ if __name__ == '__main__':
         
         freespace_marker = meshdata.subdomain_markers['freespace']
         material_marker = meshdata.subdomain_markers['material']
+        transition_marker = meshdata.subdomain_markers['transition']
         pml_marker = meshdata.subdomain_markers['pml']
-        pml_material_overlap_marker = meshdata.subdomain_markers['pml_material_overlap']
+        pml_hull_overlap_marker = meshdata.subdomain_markers['pml_hull_overlap']
         
         pec_surface_marker = meshdata.boundary_markers['pec']
         antenna_surface_marker = meshdata.boundary_markers['antenna']
@@ -813,9 +730,12 @@ if __name__ == '__main__':
         pml_surface_marker = meshdata.boundary_markers['pml']
         axis_marker = meshdata.boundary_markers['axis']
         
-        W_DG = dolfinx.fem.FunctionSpace(mesh, ("CG", 1))
+        W_DG = dolfinx.fem.functionspace(mesh, ("CG", 1))
         chi = dolfinx.fem.Function(W_DG)
         chi.x.array[:] = 0.0
+        mesh.topology.create_connectivity(mesh.topology.dim, 0)
+        mesh.topology.create_connectivity(mesh.topology.dim, 1)
+        mesh.topology.create_connectivity(mesh.topology.dim, 2)
         if True: # Indicate regions
             freespace_cells = subdomains.find(freespace_marker)
             freespace_dofs = dolfinx.fem.locate_dofs_topological(W_DG, entity_dim=tdim, entities=freespace_cells)
@@ -823,10 +743,10 @@ if __name__ == '__main__':
                 material_cells = subdomains.find(material_marker)
                 material_dofs = dolfinx.fem.locate_dofs_topological(W_DG, entity_dim=tdim, entities=material_cells)
                 chi.x.array[material_dofs] = 2.0
-            if pml_material_overlap_marker >= 0:
-                pml_material_overlap_cells = subdomains.find(pml_material_overlap_marker)
-                pml_material_overlap_dofs = dolfinx.fem.locate_dofs_topological(W_DG, entity_dim=tdim, entities=pml_material_overlap_cells)
-                chi.x.array[pml_material_overlap_dofs] = 4.0
+            if pml_hull_overlap_marker >= 0:
+                pml_hull_overlap_cells = subdomains.find(pml_hull_overlap_marker)
+                pml_hull_overlap_dofs = dolfinx.fem.locate_dofs_topological(W_DG, entity_dim=tdim, entities=pml_hull_overlap_cells)
+                chi.x.array[pml_hull_overlap_dofs] = 4.0
             pml_cells = subdomains.find(pml_marker)
             pml_dofs = dolfinx.fem.locate_dofs_topological(W_DG, entity_dim=tdim, entities=pml_cells)
             chi.x.array[freespace_dofs] = 1.0
@@ -849,7 +769,7 @@ if __name__ == '__main__':
             chi.x.array[farfield_surface_dofs] = 30.0
             chi.x.array[pml_surface_dofs] = 40.0
             chi.x.array[axis_dofs] = 50.0
-        cells, cell_types, x = dolfinx.plot.create_vtk_mesh(mesh, tdim)
+        cells, cell_types, x = dolfinx.plot.vtk_mesh(mesh, tdim)
         grid = pv.UnstructuredGrid(cells, cell_types, x)
         grid["chi"] = np.real(chi.x.array)
         plotter = pv.Plotter()
