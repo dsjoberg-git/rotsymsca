@@ -2,12 +2,12 @@
 # field is a plane wave and/or antenna field, with arbitrary
 # polarization and propagation direction. Enabled to make use of MPI.
 # 
-# Daniel Sjöberg, 2023-08-09
+# Daniel Sjöberg, 2024-07-05
 
-import numpy as np
-import dolfinx
-import ufl
 from mpi4py import MPI
+import numpy as np
+import dolfinx, ufl, basix
+import dolfinx.fem.petsc
 from petsc4py import PETSc
 from matplotlib import pyplot as plt
 import mesh_rotsymradome 
@@ -36,6 +36,8 @@ fdim = tdim - 1                      # Dimension of facets
 # -2, -1, 0, 1, 2. This would facilitate computing 3D farfield
 # patterns from a minimum of data.
 #
+# Project far field on spherical vector waves?
+#
 # Parallelization: how to save solutions (renumbering on different
 # processes). Perhaps create a global system on model_rank.
 # Gather solutions in parallel: https://fenicsproject.discourse.group/t/gather-solutions-in-parallel-in-fenicsx/5907/5
@@ -52,9 +54,9 @@ class RotSymProblem():
                  mur_bkg=1,           # Permeability of the background medium
                  material_epsr=1+0j,  # Permittivity of scatterer material
                  material_mur=1+0j,   # Permeability of scatterer material
-                 CFRP_epsr=1+0j,      # Permittivity of CFRP fuselage
-                 CFRP_mur=1+0j,       # Permeability of CFRP fuselage
-                 transition_volumefraction_CFRP=None,
+                 hull_epsr=1+0j,      # Permittivity of hull (fuselage)
+                 hull_mur=1+0j,       # Permeability of hull (fuselage)
+                 transition_volumefraction_hull=None,
                  degree=3,            # Degree of finite elements
                  comm=MPI.COMM_WORLD, # MPI communicator
                  model_rank=0,        # Model rank for saving, plotting etc
@@ -69,12 +71,12 @@ class RotSymProblem():
         self.etar_bkg = np.sqrt(mur_bkg/epsr_bkg) # Background relative wave impedance
         self.material_epsr = material_epsr
         self.material_mur = material_mur
-        self.CFRP_epsr = CFRP_epsr
-        self.CFRP_mur = CFRP_mur
-        if transition_volumefraction_CFRP == None:
-            self.transition_volumefraction_CFRP = lambda x: np.zeros(x.shape[1])
+        self.hull_epsr = hull_epsr
+        self.hull_mur = hull_mur
+        if transition_volumefraction_hull == None:
+            self.transition_volumefraction_hull = lambda x: np.zeros(x.shape[1])
         else:
-            self.transition_volumefraction_CFRP = transition_volumefraction_CFRP
+            self.transition_volumefraction_hull = transition_volumefraction_hull
         self.degree = degree
         self.ghost_ff_facets = ghost_ff_facets
 
@@ -87,9 +89,9 @@ class RotSymProblem():
         self.freespace_marker = meshdata.subdomain_markers['freespace']
         self.material_marker = meshdata.subdomain_markers['material']
         self.transition_marker = meshdata.subdomain_markers['transition']
-        self.CFRP_marker = meshdata.subdomain_markers['CFRP']
+        self.hull_marker = meshdata.subdomain_markers['hull']
         self.pml_marker = meshdata.subdomain_markers['pml']
-        self.pml_CFRP_overlap_marker = meshdata.subdomain_markers['pml_CFRP_overlap']
+        self.pml_hull_overlap_marker = meshdata.subdomain_markers['pml_hull_overlap']
 
         self.pec_surface_marker = meshdata.boundary_markers['pec']
         self.antenna_surface_marker = meshdata.boundary_markers['antenna']
@@ -116,10 +118,10 @@ class RotSymProblem():
 
     def InitializeFEM(self):
         """Set up FEM function spaces and boundary conditions."""
-        curl_element = ufl.FiniteElement('N1curl', self.mesh.ufl_cell(), self.degree)
-        lagrange_element = ufl.FiniteElement('CG', self.mesh.ufl_cell(), self.degree)
-        mixed_element = ufl.MixedElement([curl_element, lagrange_element])
-        self.Vspace = dolfinx.fem.FunctionSpace(self.mesh, mixed_element)
+        curl_element = basix.ufl.element('N1curl', self.mesh.basix_cell(), self.degree)
+        lagrange_element = basix.ufl.element('CG', self.mesh.basix_cell(), self.degree)
+        mixed_element = basix.ufl.mixed_element([curl_element, lagrange_element])
+        self.Vspace = dolfinx.fem.functionspace(self.mesh, mixed_element)
         self.V0space, self.V0_dofs = self.Vspace.sub(0).collapse()
         self.V1space, self.V1_dofs = self.Vspace.sub(1).collapse()
 
@@ -140,11 +142,11 @@ class RotSymProblem():
         # Create measures for subdomains and surfaces
         self.dx = ufl.Measure('dx', domain=self.mesh, subdomain_data=self.subdomains, metadata={'quadrature_degree': 5})
         if self.material_marker >= 0:
-            self.dx_dom = self.dx((self.freespace_marker, self.material_marker, self.transition_marker, self.CFRP_marker))
+            self.dx_dom = self.dx((self.freespace_marker, self.material_marker, self.transition_marker, self.hull_marker))
         else:
             self.dx_dom = self.dx(self.freespace_marker)
-        if self.pml_CFRP_overlap_marker >= 0:
-            self.dx_pml = self.dx((self.pml_marker, self.pml_CFRP_overlap_marker))
+        if self.pml_hull_overlap_marker >= 0:
+            self.dx_pml = self.dx((self.pml_marker, self.pml_hull_overlap_marker))
         else:
             self.dx_pml = self.dx(self.pml_marker)
         self.ds = ufl.Measure('ds', domain=self.mesh, subdomain_data=self.boundaries)
@@ -157,6 +159,9 @@ class RotSymProblem():
         self.dS = ufl.Measure('dS', domain=self.mesh, subdomain_data=self.boundaries)
         self.dS_farfield = self.dS(self.farfield_surface_marker)
 
+        # Compute connectivities
+        self.mesh.topology.create_connectivity(tdim, tdim)
+        
     def InitializeFarfieldCells(self):
         """Determine the cells adjacent to the farfield curve."""
         cells = []
@@ -168,16 +173,16 @@ class RotSymProblem():
                 if cell not in cells:
                     cells.append(cell)
         cells.sort()
-        self.farfield_cells = cells
+        self.farfield_cells = np.array(cells)
         
     def InitializeMaterial(self):
         """Set up material parameters."""
-        Wspace = dolfinx.fem.FunctionSpace(self.mesh, ("DG", 0))
+        Wspace = dolfinx.fem.functionspace(self.mesh, ("DG", 0))
         # Set up transition region
         self.epsr_transition = dolfinx.fem.Function(Wspace)
         self.mur_transition = dolfinx.fem.Function(Wspace)
-        self.epsr_transition.interpolate(lambda x: self.transition_volumefraction_CFRP(x)*self.CFRP_epsr + (1 - self.transition_volumefraction_CFRP(x))*self.material_epsr)
-        self.mur_transition.interpolate(lambda x: self.transition_volumefraction_CFRP(x)*self.CFRP_mur + (1 - self.transition_volumefraction_CFRP(x))*self.material_mur)
+        self.epsr_transition.interpolate(lambda x: self.transition_volumefraction_hull(x)*self.hull_epsr + (1 - self.transition_volumefraction_hull(x))*self.material_epsr)
+        self.mur_transition.interpolate(lambda x: self.transition_volumefraction_hull(x)*self.hull_mur + (1 - self.transition_volumefraction_hull(x))*self.material_mur)
         # Set up homogeneous material regions
         self.epsr = dolfinx.fem.Function(Wspace)
         self.mur = dolfinx.fem.Function(Wspace)
@@ -187,19 +192,19 @@ class RotSymProblem():
         material_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=material_cells)
         transition_cells = self.subdomains.find(self.transition_marker)
         transition_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=transition_cells)
-        CFRP_cells = self.subdomains.find(self.CFRP_marker)
-        CFRP_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=CFRP_cells)
+        hull_cells = self.subdomains.find(self.hull_marker)
+        hull_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=hull_cells)
         self.epsr.x.array[material_dofs] = self.material_epsr
         self.mur.x.array[material_dofs] = self.material_mur
         self.epsr.x.array[transition_dofs] = self.epsr_transition.x.array[transition_dofs]
         self.mur.x.array[transition_dofs] = self.mur_transition.x.array[transition_dofs]
-        self.epsr.x.array[CFRP_dofs] = self.CFRP_epsr
-        self.mur.x.array[CFRP_dofs] = self.CFRP_mur
-        if self.pml_CFRP_overlap_marker >= 0:
-            CFRP_cells = self.subdomains.find(self.pml_CFRP_overlap_marker)
-            CFRP_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=CFRP_cells)
-            self.epsr.x.array[CFRP_dofs] = self.CFRP_epsr
-            self.mur.x.array[CFRP_dofs] = self.CFRP_mur
+        self.epsr.x.array[hull_dofs] = self.hull_epsr
+        self.mur.x.array[hull_dofs] = self.hull_mur
+        if self.pml_hull_overlap_marker >= 0:
+            hull_cells = self.subdomains.find(self.pml_hull_overlap_marker)
+            CFRP_dofs = dolfinx.fem.locate_dofs_topological(Wspace, entity_dim=tdim, entities=hull_cells)
+            self.epsr.x.array[hull_dofs] = self.hull_epsr
+            self.mur.x.array[hull_dofs] = self.hull_mur
             
         
     def InitializePML(self):
@@ -300,7 +305,7 @@ class RotSymProblem():
             mesh = parent.mesh
             degree = parent.degree
             Vspace = parent.Vspace
-            ScalarSpace = dolfinx.fem.FunctionSpace(mesh, ('CG', degree))
+            ScalarSpace = dolfinx.fem.functionspace(mesh, ('CG', degree))
             k0 = parent.k0
             self.k = parent.k0*parent.n_bkg
             mur_bkg = parent.mur_bkg
@@ -377,13 +382,13 @@ class RotSymProblem():
 
     def PlotField(self, E, Erefl=None, animate=False, filename='tmp.mp4', clim='sym'):
         """Plot the field in the domain."""
-        PlotSpace = dolfinx.fem.FunctionSpace(self.mesh, ('CG', 1))
+        PlotSpace = dolfinx.fem.functionspace(self.mesh, ('CG', 1))
 
         def CreateGrid(E, reflect=False):
             E_plot = dolfinx.fem.Function(PlotSpace)
             E_plot.interpolate(dolfinx.fem.Expression(E, PlotSpace.element.interpolation_points()))
             E_plot_array = E_plot.x.array
-            cells, cell_types, x = dolfinx.plot.create_vtk_mesh(self.mesh, tdim)
+            cells, cell_types, x = dolfinx.plot.vtk_mesh(self.mesh, tdim)
             E_grid = pv.UnstructuredGrid(cells, cell_types, x)
             if reflect == True:
                 E_grid = E_grid.reflect((1, 0, 0), point=(0, 0, 0))
@@ -434,13 +439,13 @@ class RotSymProblem():
             clim_Ephi = clim
 
         if self.material_marker >= 0: # Indicate material region
-            V = dolfinx.fem.FunctionSpace(self.mesh, ('DG', 0))
+            V = dolfinx.fem.functionspace(self.mesh, ('DG', 0))
             u = dolfinx.fem.Function(V)
-            material_cells = np.concatenate((self.subdomains.find(self.material_marker), self.subdomains.find(self.transition_marker), self.subdomains.find(self.CFRP_marker)))
+            material_cells = np.concatenate((self.subdomains.find(self.material_marker), self.subdomains.find(self.transition_marker), self.subdomains.find(self.hull_marker)))
             material_dofs = dolfinx.fem.locate_dofs_topological(V, entity_dim=tdim, entities=material_cells)
             u.x.array[:] = 0
             u.x.array[material_dofs] = 0.25 # Used as opacity value later
-            cells, cell_types, x = dolfinx.plot.create_vtk_mesh(self.mesh, tdim)
+            cells, cell_types, x = dolfinx.plot.vtk_mesh(self.mesh, tdim)
             mat_grid = pv.UnstructuredGrid(cells, cell_types, x)
             mat_grid["u"] = np.real(u.x.array)
             mat_grids = self.comm.gather(mat_grid, root=self.model_rank)
@@ -599,7 +604,7 @@ class RotSymProblem():
 
         # Set solver options
         if True: # Direct solver
-            petsc_options = {"ksp_type": "preonly", "pc_type": "lu"}
+            petsc_options = {"ksp_type": "preonly", "pc_type": "lu", "pc_factor_mat_solver_type": "mumps"}
         elif False: # Iterative solver, not well configured yet
             petsc_options = {"ksp_type": "gmres", "ksp_rtol": 1e-6, "ksp_atol": 1e-10, "ksp_max_it": 1000, "pc_type": "none"}
         else: # Experiment with solver options
@@ -683,8 +688,6 @@ if __name__ == '__main__':
     Nangles = 361
     h = 0.1*lambda0
     PMLcylindrical = True
-    PMLpenetrate = True
-    MetalBase = False
     
     verification_case = False
     if verification_case: # Sphere case
@@ -699,21 +702,25 @@ if __name__ == '__main__':
         meshdata = mesh_rotsymradome.CreateMeshSphere(comm=comm, model_rank=model_rank, radius_sphere=radius_sphere, radius_farfield=radius_farfield, radius_domain=radius_domain, radius_pml=radius_pml, h=h, pec=pec, visualize=False, PMLcylindrical=PMLcylindrical)
     else:
         material_epsr = 3*(1 - 0.01j)
-        CFRP_epsr = 100 - 72j
+        hull_epsr = 100 - 72j
+        hfine = h/10
+        PMLpenetrate = True
+        AntennaMetalBase = False
+        Antenna = True
         w = 10*lambda0
         t = lambda0/10
         Htransition = lambda0
-        transition_volumefraction_CFRP = lambda x: -x[1]/Htransition
-        transition_volumefraction_CFRP = lambda x: 0*np.ones(x.shape[1])
+        transition_volumefraction_hull = lambda x: -x[1]/Htransition
+        transition_volumefraction_hull = lambda x: 0*np.ones(x.shape[1])
         antenna_taper = lambda x: np.cos(x[0]/(w/2)*np.pi/2)
         
-        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, w=w, t=t, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, MetalBase=MetalBase)
+        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, hfine=hfine, w=w, t=t, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, Antenna=Antenna, AntennaMetalBase=AntennaMetalBase)
 
 #    ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
 #    mesh_rotsymradome.PlotMeshPartition(comm, model_rank, meshdata.mesh, ghost_ff_facets, meshdata.boundaries, meshdata.boundary_markers['farfield'])
 #    exit()
 
-    p = RotSymProblem(meshdata, material_epsr=material_epsr, CFRP_epsr=CFRP_epsr, f0=f0, transition_volumefraction_CFRP=transition_volumefraction_CFRP)
+    p = RotSymProblem(meshdata, material_epsr=material_epsr, hull_epsr=hull_epsr, f0=f0, transition_volumefraction_hull=transition_volumefraction_hull)
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
                  theta_inc=theta_inc, phi_inc=phi_inc,
                  E0theta_ant=E0theta_ant, E0phi_ant=E0phi_ant,

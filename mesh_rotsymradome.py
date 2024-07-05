@@ -1,7 +1,7 @@
 # Create mesh for a rotationally symmetric radome. Also a similar
 # geometry with a sphere for verification.
 # 
-# Daniel Sjöberg, 2023-06-19
+# Daniel Sjöberg, 2024-07-04
 
 import numpy as np
 import dolfinx
@@ -20,6 +20,7 @@ tdim = 2                             # Dimension of triangles/tetraedra
 fdim = tdim - 1                      # Dimension of facets
 
 class PerfectlyMatchedLayer():
+    """Data structure for PML."""
     def __init__(self, d=None, radius=None, rho=None, zt=None, zb=None, n=3, cylindrical=False):
         self.d = d                     # Thickness of PML
         self.radius = radius           # Radius of spherical PML
@@ -29,6 +30,7 @@ class PerfectlyMatchedLayer():
         self.cylindrical = cylindrical # Whether to use cylindrical PML
         
 class MeshData():
+    """Data structure for the mesh and metadata."""
     def __init__(
             self, mesh=None, subdomains=None, boundaries=None,
             subdomain_markers={'freespace': -1,
@@ -86,7 +88,7 @@ def CheckGhostFarfieldFacets(comm, model_rank, mesh, boundaries, farfield_surfac
     return ghost_ff_facets
 
 def PlotMeshPartition(comm, model_rank, mesh, ghost_ff_facets, boundaries, farfield_surface_marker):
-    V = dolfinx.fem.FunctionSpace(mesh, ('CG', 1))
+    V = dolfinx.fem.functionspace(mesh, ('CG', 1))
     u = dolfinx.fem.Function(V)
     u.interpolate(lambda x: np.ones(x.shape[1])*comm.rank)
     mesh.topology.create_connectivity(fdim, 0)
@@ -111,7 +113,7 @@ def PlotMeshPartition(comm, model_rank, mesh, ghost_ff_facets, boundaries, farfi
 #            print(f'Rank {comm.rank}: {gfff_local}')
 #            print(f'Rank {comm.rank}: {dof_indices}')
             u.x.array[dof_indices] = -1
-    cells, cell_types, x = dolfinx.plot.create_vtk_mesh(mesh, tdim)
+    cells, cell_types, x = dolfinx.plot.vtk_mesh(mesh, tdim)
     grid = pyvista.UnstructuredGrid(cells, cell_types, x)
     grid["rank"] = np.real(u.x.array)
     grids = comm.gather(grid, root=model_rank)
@@ -656,8 +658,10 @@ def CreateMeshSphere(
 
         subdomain_markers = {'freespace': freespace_marker,
                              'material': material_marker,
+                             'transition': -1,
+                             'hull': -1,
                              'pml': pml_marker,
-                             'pml_material_overlap': -1}
+                             'pml_hull_overlap': -1}
 
         # Create physical groups for sphere surface and far field boundary
         sphere_surface_marker = gmsh.model.addPhysicalGroup(fdim, [sphere_boundary])
@@ -704,7 +708,7 @@ def CreateMeshSphere(
 
 if __name__ == '__main__':
     # Create and visualize the mesh if run from the prompt
-    if True:
+    if False:
         meshdata = CreateMeshOgive(visualize=True, h=0.1*lambda0, PMLcylindrical=True, PMLpenetrate=False, Antenna=True, AntennaMetalBase=False, t=lambda0/4, Htransition=1*lambda0, hfine=0.01*lambda0)
     else:
         pec = True
