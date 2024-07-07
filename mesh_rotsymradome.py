@@ -57,6 +57,7 @@ class MeshData():
         
 
 def CheckGhostFarfieldFacets(comm, model_rank, mesh, boundaries, farfield_surface_marker):
+    """When running the script with a distributed mesh, it may happen that the mesh is divided exactly on one or several facets where we want to compute the far field. As the code is written, this leads to these ghost facets contributing twice to the far field integral, and there is currently no fix. Use this routine to check for the occurence of ghost far field facets, and tweak the simulation parameters if there are any."""
     ff_facets_local = boundaries.find(farfield_surface_marker)
     local_to_global = mesh.topology.index_map(fdim).local_to_global
     ff_facets_global = local_to_global(ff_facets_local)
@@ -82,7 +83,7 @@ def CheckGhostFarfieldFacets(comm, model_rank, mesh, boundaries, farfield_surfac
 #    ff_boundary = dolfinx.mesh.meshtags(mesh, fdim, ff_facets, farfield_surface_marker)
     if len(ghost_ff_facets) > 0:
         if comm.rank == model_rank:
-            print('Ghost farfield facets detected, farfield results may be inaccurate. Consider making small changes in location of far field surface, mesh size, or use different number of processors.')
+            print('Ghost farfield facets detected, farfield results may be inaccurate. Consider making small changes in location of far field surface, mesh size, or use different number of ranks.')
             print(f'ghost_ff_facets = {ghost_ff_facets}')
             sys.stdout.flush()
     return ghost_ff_facets

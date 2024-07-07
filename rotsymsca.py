@@ -1,8 +1,14 @@
 # Compute scattering for a rotationally symmetric structure. Exciting
 # field is a plane wave and/or antenna field, with arbitrary
-# polarization and propagation direction. Enabled to make use of MPI.
+# polarization and propagation direction.
+#
+# The code makes use of MPI to enable parallel processing. However,
+# you may need to execute "export OMP_NUM_THREADS=1" when running with
+# something like "mpirun -n 4 python testmpi.py", to prevent PETSc
+# from starting too many threads, see for instance
+# https://fenicsproject.discourse.group/t/running-in-parallel-slower-than-serial/1661
 # 
-# Daniel Sjöberg, 2024-07-05
+# Daniel Sjöberg, 2024-07-07
 
 from mpi4py import MPI
 import numpy as np
@@ -142,7 +148,10 @@ class RotSymProblem():
         # Create measures for subdomains and surfaces
         self.dx = ufl.Measure('dx', domain=self.mesh, subdomain_data=self.subdomains, metadata={'quadrature_degree': 5})
         if self.material_marker >= 0:
-            self.dx_dom = self.dx((self.freespace_marker, self.material_marker, self.transition_marker, self.hull_marker))
+            if self.transition_marker >= 0 and self.hull_marker >= 0:
+                self.dx_dom = self.dx((self.freespace_marker, self.material_marker, self.transition_marker, self.hull_marker))
+            else:
+                self.dx_dom = self.dx((self.freespace_marker, self.material_marker))
         else:
             self.dx_dom = self.dx(self.freespace_marker)
         if self.pml_hull_overlap_marker >= 0:
@@ -672,6 +681,8 @@ class RotSymProblem():
         return(mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes)
 
 if __name__ == '__main__':
+    # The code below illustrates how to set up a simulation
+    
     comm = MPI.COMM_WORLD
     model_rank = 0
 
@@ -689,21 +700,23 @@ if __name__ == '__main__':
     h = 0.1*lambda0
     PMLcylindrical = True
     
-    verification_case = False
-    if verification_case: # Sphere case
+    sphere_case = True
+    if sphere_case: 
         radius_sphere = 0.5*lambda0
         radius_farfield = radius_sphere + 0.5*lambda0
         radius_domain = radius_farfield + 0.5*lambda0
         radius_pml = radius_domain + 0.5*lambda0
         material_epsr = 2
-        pec = True
+        pec = False
         antenna_taper = None
         
-        meshdata = mesh_rotsymradome.CreateMeshSphere(comm=comm, model_rank=model_rank, radius_sphere=radius_sphere, radius_farfield=radius_farfield, radius_domain=radius_domain, radius_pml=radius_pml, h=h, pec=pec, visualize=False, PMLcylindrical=PMLcylindrical)
+        meshdata = mesh_rotsymradome.CreateMeshSphere(comm=comm, model_rank=model_rank, radius_sphere=radius_sphere, radius_farfield=radius_farfield, radius_domain=radius_domain, radius_pml=radius_pml, h=h, pec=pec, visualize=True, PMLcylindrical=PMLcylindrical)
+        print(meshdata.subdomain_markers, meshdata.boundary_markers)
+        p = RotSymProblem(meshdata, material_epsr=material_epsr, f0=f0)
     else:
         material_epsr = 3*(1 - 0.01j)
         hull_epsr = 100 - 72j
-        hfine = h/10
+        hfine = h#h/10
         PMLpenetrate = True
         AntennaMetalBase = False
         Antenna = True
@@ -714,13 +727,15 @@ if __name__ == '__main__':
         transition_volumefraction_hull = lambda x: 0*np.ones(x.shape[1])
         antenna_taper = lambda x: np.cos(x[0]/(w/2)*np.pi/2)
         
-        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, hfine=hfine, w=w, t=t, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, Antenna=Antenna, AntennaMetalBase=AntennaMetalBase)
+        meshdata = mesh_rotsymradome.CreateMeshOgive(comm=comm, model_rank=model_rank, d=lambda0/(2*np.real(np.sqrt(material_epsr))), h=h, hfine=hfine, w=w, t=t, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, Antenna=Antenna, AntennaMetalBase=AntennaMetalBase, visualize=False)
 
-#    ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
-#    mesh_rotsymradome.PlotMeshPartition(comm, model_rank, meshdata.mesh, ghost_ff_facets, meshdata.boundaries, meshdata.boundary_markers['farfield'])
-#    exit()
+        p = RotSymProblem(meshdata, material_epsr=material_epsr, hull_epsr=hull_epsr, f0=f0, transition_volumefraction_hull=transition_volumefraction_hull)
 
-    p = RotSymProblem(meshdata, material_epsr=material_epsr, hull_epsr=hull_epsr, f0=f0, transition_volumefraction_hull=transition_volumefraction_hull)
+    if False: # Test for ghost farfield facets and plot mesh partition
+        ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
+        mesh_rotsymradome.PlotMeshPartition(comm, model_rank, meshdata.mesh, ghost_ff_facets, meshdata.boundaries, meshdata.boundary_markers['farfield'])
+        exit()
+
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
                  theta_inc=theta_inc, phi_inc=phi_inc,
                  E0theta_ant=E0theta_ant, E0phi_ant=E0phi_ant,
@@ -740,10 +755,10 @@ if __name__ == '__main__':
             print('# Scattering angle (deg), Re(ff[theta]), Im(ff[theta]), Re(ff[phi]), Im(ff[phi])', file=f)
             for n in range(len(scattering_angles)):
                 print(f'{scattering_angles[n]*180/np.pi}, {np.real(ff[0,n])}, {np.imag(ff[0,n])}, {np.real(ff[1,n])}, {np.imag(ff[1,n])}', file=f)
-        if MPI.COMM_WORLD.rank == 1: # Saving to xdmf only works in single process now
+        if comm.size == 1: # Saving to xdmf only works in single process now
             # First interpolate the results to a standard Lagrange vector space
-            Velement = ufl.VectorElement('CG', meshdata.mesh.ufl_cell(), 1, dim=3)
-            Vspace = dolfinx.fem.FunctionSpace(meshdata.mesh, Velement)
+            Velement = basix.ufl.element('CG', meshdata.mesh.basix_cell(), 1, shape=(3,))
+            Vspace = dolfinx.fem.functionspace(meshdata.mesh, Velement)
             u = dolfinx.fem.Function(Vspace)
             with dolfinx.io.XDMFFile(MPI.COMM_SELF, f'fields.xdmf', 'w') as f:
                 f.write_mesh(meshdata.mesh)
@@ -765,7 +780,7 @@ if __name__ == '__main__':
 
         # Plot the results
         if comm.rank == model_rank:
-            if verification_case:
+            if sphere_case:
                 # Compute reference results
                 import miepython
                 x = 2*np.pi*radius_sphere/lambda0

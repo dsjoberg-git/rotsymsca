@@ -1,11 +1,11 @@
 # Script to run verification cases for rotsymsca.py
 #
-# Daniel Sjöberg, 2023-07-19
+# Daniel Sjöberg, 2024-07-07
 
+from mpi4py import MPI
 import numpy as np
 import rotsymsca
 import mesh_rotsymradome
-from mpi4py import MPI
 from scipy.constants import c as c0
 from matplotlib import pyplot as plt
 import miepython
@@ -33,6 +33,11 @@ def compute_sphere(a, f0, epsr, pol, h, full_computation=False, comm=MPI.COMM_WO
         
     meshdata = mesh_rotsymradome.CreateMeshSphere(radius_sphere=radius_sphere, radius_farfield=radius_farfield, radius_domain=radius_domain, radius_pml=radius_pml, h=h, pec=pec, visualize=False, comm=comm, model_rank=model_rank)
 
+    # Check for ghost facets
+    ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
+    if len(ghost_ff_facets) > 0:
+        print('Detected ghost farfield facets, exiting.')
+        exit()
     p = rotsymsca.RotSymProblem(meshdata, f0=f0, material_epsr=epsr)
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
                  theta_inc=theta_inc, phi_inc=phi_inc)
@@ -41,7 +46,7 @@ def compute_sphere(a, f0, epsr, pol, h, full_computation=False, comm=MPI.COMM_WO
     else:
         mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes = p.ComputeSolutionsAndPostprocess(mvec=[-1, 1])
 
-    return(scattering_angles, farfield_amplitudes)
+    return scattering_angles, farfield_amplitudes
 
 def error_norms(sol, ref_sol):
     absnorm = np.abs(sol - ref_sol)
@@ -50,30 +55,22 @@ def error_norms(sol, ref_sol):
     rms_rel = np.sqrt(np.sum(relnorm**2)/len(ref_sol))
     max_abs = np.max(absnorm)
     max_rel = np.max(relnorm)
-    return(rms_abs, rms_rel, max_abs, max_rel)
+    return rms_abs, rms_rel, max_abs, max_rel
     
-def verification(comm=MPI.COMM_WORLD, model_rank=0):
-    f0 = 10e9
-    lambda0 = c0/f0
-    a = 0.5*lambda0
-    epsr = -1#3*(1 - 0.1j)
-    pol = 'theta'
+def verification(comm=MPI.COMM_WORLD, model_rank=0, f0=10e9, a=1, epsr=-1, pol='theta', title='', full_computation=False):
     h_vec = [0.4*lambda0, 0.2*lambda0, 0.1*lambda0, 0.05*lambda0, 0.025*lambda0]
     ff_vec = []
     for h in h_vec:
         print(f'h/lambda = {h/lambda0}')
-        scattering_angles, farfield_amplitudes = compute_sphere(a, f0, epsr, pol, h, full_computation=False, comm=comm, model_rank=model_rank)
-        if pol == 'theta':
-            ff_vec.append(farfield_amplitudes[0])
-        else:
-            ff_vec.append(farfield_amplitudes[1])
-
-    # Collect far field results from all ranks
-    ff_vecs = comm.gather(ff_vec, root=model_rank)
-    if comm.rank == model_rank:
-        ff_vec = np.sum(np.array(ff_vecs), axis=0)
-    else:
-        ff_vec = None
+        scattering_angles, farfield_amplitudes = compute_sphere(a, f0, epsr, pol, h, full_computation=full_computation, comm=comm, model_rank=model_rank)
+        # Collect far field results from all ranks and save in model_rank
+        farfields = comm.gather(farfield_amplitudes, root=model_rank)
+        if comm.rank == model_rank:
+            ff = sum(farfields)
+            if pol == 'theta':
+                ff_vec.append(ff[0])
+            else:
+                ff_vec.append(ff[1])
 
     if comm.rank == model_rank:
         if np.real(epsr) < 0:
@@ -97,22 +94,40 @@ def verification(comm=MPI.COMM_WORLD, model_rank=0):
             max_rel_vec.append(max_rel)
 
         plt.figure()
-        plt.plot(scattering_angles*180/np.pi, np.abs(ff_vec[-1])**2, label='rotsymsca')
-        plt.plot(scattering_angles*180/np.pi, ref_solution, '--', label='miepython')
-        plt.legend(loc='best')
-        plt.xlabel('theta (degrees)')
- 
-    
-        plt.figure()
         plt.loglog(lambda0/np.array(h_vec), np.array(max_rel_vec), marker='s', label='max rel error')
         plt.loglog(lambda0/np.array(h_vec), np.array(rms_rel_vec), marker='o', label='rms rel error')
         plt.xlabel(r'$\lambda/h$', fontsize=16)
         plt.grid(visible=True, which='both')
         plt.legend(loc='best')
-        plt.show()
+        plt.title(title)
 
 if __name__ == '__main__':
     comm = MPI.COMM_WORLD
     model_rank = 0
-    verification(comm=comm, model_rank=model_rank)
+    full_computation = False
+    f0 = 10e9
+    lambda0 = c0/f0
+    a = 0.5*lambda0
+    polvec = ['theta', 'phi']
+    epsrvec = [-1, 3*(1 - 0.01j)]
+    for epsr in epsrvec:
+        for pol in polvec:
+            if np.real(epsr) < 0:
+                mat = 'pec'
+                if pol == 'theta':
+                    title = 'PEC sphere E-plane'
+                else:
+                    title = 'PEC sphere H-plane'
+            else:
+                mat = 'dielectric'
+                if pol == 'theta':
+                    title = 'Dielectric sphere E-plane'
+                else:
+                    title = 'Dielectric sphere H-plane'
+            verification(comm=comm, model_rank=model_rank, f0=f0, a=a, epsr=epsr, pol=pol, title=title)
+            if comm.rank == model_rank:
+                plt.savefig(f'verification_{mat}_{pol}.pdf')
+    if comm.rank == model_rank:
+        plt.show()
+    
     
