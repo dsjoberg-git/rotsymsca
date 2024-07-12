@@ -1,13 +1,11 @@
 # rotsymsca
 Code for simulation of electromagnetic scattering from rotationally symmetric objects. It is based on [FEniCSx](https://fenicsproject.org/), an open source finite element computing platform.
 
-This particular version was prepared to compute the results for EuCAP 2024.
-
 ## Installation
 
 The installation instructions below are based on the instructions for installing [fe2ms](https://github.com/nwingren/fe2ms), a FE-BI hybrid code developed by Niklas Wingren. 
 
-The code is primarily based on FEniCSx which is available on macOS and Linux. However, installation of this package has only been tested on Ubuntu and the installation instructions are written for this. For Windows users, Linux can be run easily using Windows Subsystem for Linux (WSL). Installation instructions and more information can be found [here](https://learn.microsoft.com/en-us/windows/wsl/install).
+The code is based on FEniCSx which is available on macOS and Linux. However, installation of this package has only been tested on Ubuntu and the installation instructions are written for this. For Windows users, Linux can be run easily using Windows Subsystem for Linux (WSL). Installation instructions and more information can be found [here](https://learn.microsoft.com/en-us/windows/wsl/install). Make sure you install version WSL2.
 
 Installation using mamba (similar to conda) is recommended. The instructions are as follows.
 
@@ -16,8 +14,8 @@ Installation using mamba (similar to conda) is recommended. The instructions are
 Please follow [these](https://github.com/conda-forge/miniforge#mambaforge) instructions to install mamba. Following this, it is recommended that you create a new environment as follows ("fe2ms" can be changed to your preferred environment name).
 
 ```bash
-mamba create --clone base --name fe2ms
-mamba activate fe2ms
+mamba create --name rotsymsca
+mamba activate rotsymsca
 ```
 
 ### Install FEniCSx
@@ -25,22 +23,19 @@ mamba activate fe2ms
 Having activated the fe2ms environment, the following will install fenicsx there.
 
 ```bash
-mamba install fenics-dolfinx=0.6.0 mpich petsc=*=complex*
-```
-However, in current builds there seem to be some issues with basix data structures. Requesting explicit builds as below seems to work.
-
-```bash
-mamba install fenics-dolfinx=0.6.0=*py310he6dc2dd_1 fenics-basix=0.6.0=*py310hdf3cbec_0 mpich petsc=*=complex*
+mamba install fenics-dolfinx mpich petsc=*=complex*
 ```
 
 ### Install other Python packages
 
-This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. 
+This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. The package ```miepython``` is only used to run the verification case of scattering against a sphere.
 
 ```bash
-mamba install scipy matplotlib python-gmsh=4.10.5 pyvista pyvistaqt miepython
+mamba install scipy matplotlib python-gmsh pyvista pyvistaqt miepython
 pip install imageio[ffmpeg]
 ```
+You also need the package ```sphericalvectorwaves```.
+
 
 ### Install some optional packages
 
@@ -58,7 +53,7 @@ sudo apt install vlc
 - ```mesh_rotsymradome.py``` sets up the mesh for two cases: an ogive radome or a sphere (PEC or material). The absorbing boundary is a PML, either spherical or cylindrical. The ogive radome can penetrate the cylindrical PML, enabling simulating a semi-infinite fuselage.
 - ```rotsymsca.py``` is the main simulation code.
 - ```verification.py``` runs a sphere verification case using ```miepython``` as reference code. 
-- ```radome_simulation.py``` is an example of how a parameterized simulation can be set up. 
+- ```radome_simulations.py``` is an example of how a parameterized simulation can be set up. 
 
 ## Author
 

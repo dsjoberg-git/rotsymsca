@@ -35,16 +35,13 @@ def compute_sphere(a, f0, epsr, pol, h, full_computation=False, comm=MPI.COMM_WO
 
     # Check for ghost facets
     ghost_ff_facets = mesh_rotsymradome.CheckGhostFarfieldFacets(comm, model_rank, meshdata.mesh, meshdata.boundaries, meshdata.boundary_markers['farfield'])
-    if len(ghost_ff_facets) > 0:
-        print('Detected ghost farfield facets, exiting.')
-        exit()
-    p = rotsymsca.RotSymProblem(meshdata, f0=f0, material_epsr=epsr)
+    p = rotsymsca.RotSymProblem(meshdata, f0=f0, material_epsr=epsr, ghost_ff_facets=ghost_ff_facets)
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
                  theta_inc=theta_inc, phi_inc=phi_inc)
     if full_computation:
-        mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes = p.ComputeSolutionsAndPostprocess()
+        mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SphericalVectorWaves = p.ComputeSolutionsAndPostprocess()
     else:
-        mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes = p.ComputeSolutionsAndPostprocess(mvec=[-1, 1])
+        mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SphericalVectorWaves = p.ComputeSolutionsAndPostprocess(mvec=[-1, 1])
 
     return scattering_angles, farfield_amplitudes
 
@@ -124,9 +121,9 @@ if __name__ == '__main__':
                     title = 'Dielectric sphere E-plane'
                 else:
                     title = 'Dielectric sphere H-plane'
-            verification(comm=comm, model_rank=model_rank, f0=f0, a=a, epsr=epsr, pol=pol, title=title)
+            verification(comm=comm, model_rank=model_rank, f0=f0, a=a, epsr=epsr, pol=pol, title=title, full_computation=full_computation)
             if comm.rank == model_rank:
-                plt.savefig(f'verification_{mat}_{pol}.pdf')
+                plt.savefig(f'verification_figs/verification_test_{mat}_{pol}.pdf')
     if comm.rank == model_rank:
         plt.show()
     
