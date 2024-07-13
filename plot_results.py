@@ -1,6 +1,6 @@
 # Plot the results of the radome simulations.
 #
-# Daniel Sjöberg, 2023-10-12
+# Daniel Sjöberg, 2024-07-13
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -9,14 +9,19 @@ from scipy.signal import hilbert
 plt.rc('lines', linewidth=2)
 plt.rc('font', size=12)
 
-results = [('farfield_radome_sca_phi_h0.1_w10_Ht0.11.txt', '0'),
-           ('farfield_radome_sca_phi_h0.1_w10_Ht1.txt', '1'),
-           ('farfield_radome_sca_phi_h0.1_w10_Ht2.txt', '2'),
-           ('farfield_radome_sca_phi_h0.1_w10_Ht4.txt', '4')]
-results = [('farfield_radome_sca_phi_h0.1_w20_Ht0.11.txt', 'untreated'),
-           ('farfield_radome_sca_phi_h0.1_w20_Ht1.txt', 'treated1'),
-           ('farfield_radome_sca_phi_h0.1_w20_Ht2.txt', 'treated2'),
-           ('farfield_radome_sca_phi_h0.1_w20_Ht4.txt', 'treated')]
+results_scatter = []
+results_antenna = []
+for wfactor in [10]:#[10, 20]: # Choose only one
+    for air in [False, True]:
+        for pol in ['theta', 'phi']:
+            for antenna_mode in [True, False]:
+                for theta_degrees in [0]:#[0, 10, 20, 30, 40, 50]: # Choose only one
+                    filename = f'data/radome_w{wfactor}_air{air}_pol{pol}_antenna{antenna_mode}_theta{theta_degrees}_farfield.txt'
+                    label = fr'pol = $\{pol}$, radome = {air^True}'
+                    if antenna_mode:
+                        results_antenna.append((filename, label))
+                    else:
+                        results_scatter.append((filename, label))
 
 def ReadData(filename):
     data = np.genfromtxt(filename, delimiter=',')
@@ -26,23 +31,28 @@ def ReadData(filename):
     ff = 10*np.log10(np.abs(data[:,1] + 1j*data[:,2])**2 + np.abs(data[:,3] + 1j*data[:,4])**2)
     return(theta, ff_theta, ff_phi, ff)
 
-def envelope(data):
-    """Compute the envelope of a data set. Does not really work here."""
-    x = hilbert(data - np.mean(data))
-    return(abs(x))
-           
-fig, ax = plt.subplots()
-ax.set_xticks([-90, -75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75, 90])
-ax.set_xticks([-90, -60, -30, 0, 30, 60, 90])
-ax.grid(True)
-for filename, label in results:
-    theta, ff_theta, ff_phi, ff = ReadData(filename)
-    ax.plot(theta, ff + 10*np.log10(4*np.pi), label=label)
-#    ax.plot(theta, envelope(ff), '--')
-#plt.ylim(-80, 0)
-plt.xlim(-90, 90)
-plt.ylim(-35, -5)
-plt.legend(loc='best')
-plt.xlabel('theta (degrees)')
-plt.ylabel('Bistatic cross section (dBsm)')
+fig1, ax1 = plt.subplots()
+fig2, ax2 = plt.subplots()
+ax1.set_xticks([-90, -75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75, 90])
+ax1.set_xticks([-90, -60, -30, 0, 30, 60, 90])
+ax1.grid(True)
+ax2.set_xticks([-90, -75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75, 90])
+ax2.set_xticks([-90, -60, -30, 0, 30, 60, 90])
+ax2.grid(True)
+for filename, label in results_scatter:
+    thetaplot, ff_theta, ff_phi, ff = ReadData(filename)
+    ax1.plot(thetaplot, ff + 10*np.log10(4*np.pi), label=label)
+for filename, label in results_antenna:
+    thetaplot, ff_theta, ff_phi, ff = ReadData(filename)
+    ax2.plot(thetaplot, ff - ff.max(), label=label)
+ax1.set_xlim(-90, 90)
+ax1.legend(loc='best')
+ax1.set_xlabel('theta (degrees)')
+ax1.set_ylabel('Bistatic cross section (dBsm)')
+ax1.set_title(fr'Scattering case, $w = {wfactor}\lambda_0$, $\theta = {theta_degrees}^\circ$')
+ax2.set_xlim(-90, 90)
+ax2.legend(loc='best')
+ax2.set_xlabel('theta (degrees)')
+ax2.set_ylabel('Normalized gain (dB)')
+ax2.set_title(fr'Antenna case, $w = {wfactor}\lambda_0$, $\theta = {theta_degrees}^\circ$')
 plt.show()

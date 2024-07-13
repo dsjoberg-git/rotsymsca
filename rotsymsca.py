@@ -660,7 +660,7 @@ class RotSymProblem():
             N = -1
         return(int(N) + 1)
             
-    def ComputeSolutionsAndPostprocess(self, mvec=None, phi_out=0, phi_ff=0, Nangles=361, filename='solutions.npy'):
+    def ComputeSolutionsAndPostprocess(self, mvec=None, phi_out=0, phi_ff=0, Nangles=361, ComputeSVW=False):
         N = self.wiscombe(self.k0*self.max_r)
         print(f'Rank {self.comm.rank}: N = {N}')
         if mvec == None:
@@ -688,7 +688,8 @@ class RotSymProblem():
         angles[idx,1] = phi_ff + np.pi
         Fm = self.FarField(self)
 
-        SphericalVectorWaves = self.SphericalVectorWaves(self, N)
+        if ComputeSVW:
+            SVW = self.SphericalVectorWaves(self, N)
         
         # Set up computation 
         rho, z = ufl.SpatialCoordinate(self.mesh)
@@ -721,11 +722,6 @@ class RotSymProblem():
         if self.antenna_surface_marker >= 0:
             F_ant = alpha_bc/h*ufl.inner(ufl.cross(Es_m + Eb_m - Ea_m, n), ufl.cross(v_m, n))*self.ds_antenna
             F = F + F_ant
-
-        # Weak imposition of axial boundary condition Ephi+j*m*Erho=0 for m=+/-1
-#        F_axis = alpha_bc/h*ufl.inner(Es_m[2] + 1j*m_idx*Es_m[0], v_m[2])*self.ds_axis
-#        a0, L0 = ufl.lhs(F), ufl.rhs(F)
-#        a_pm1, L_pm1 = ufl.lhs(F + F_axis), ufl.rhs(F + F_axis)
 
         a, L = ufl.lhs(F), ufl.rhs(F)
 
@@ -762,17 +758,7 @@ class RotSymProblem():
             Eb_m.sub(0).interpolate(f_rz)
             Eb_m.sub(1).interpolate(f_phi)
             
-#            a, L = a0, L0
-            if m == 0:
-                # Ez can be non-zero, Ephi = 0. Note Erho dofs are not on the axis.
-                bcs = [self.bc1_axis]
-            elif m == -1 or m == 1:
-                # Ez = 0, Ephi + jm*Erho = 0
-                bcs = [self.bc0_axis]
-#                a, L = a_pm1, L_pm1
-            else:
-                bcs = [self.bc0_axis, self.bc1_axis]
-            problem.bcs = []#bcs
+            problem.bcs = []
             m_idx.value = m
             with dolfinx.common.Timer() as t:
                 Es_m_h = problem.solve()
@@ -796,12 +782,15 @@ class RotSymProblem():
                     f.write(f'{time.asctime()}: At rank {self.comm.rank}: m = {m}, farfield time: {t.elapsed()[0]}\n')
                 sys.stdout.flush()
 
-            with dolfinx.common.Timer() as t:
-                SphericalVectorWaves.eval_coefficients(m, Es_m_h)
-                print(f'Rank {self.comm.rank} SVW time: {t.elapsed()[0]}')
-                sys.stdout.flush()
+            if ComputeSVW:
+                with dolfinx.common.Timer() as t:
+                    SVW.eval_coefficients(m, Es_m_h)
+                    print(f'Rank {self.comm.rank} SVW time: {t.elapsed()[0]}')
+                    sys.stdout.flush()
+            else:
+                SVW = None
                 
-        return(mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SphericalVectorWaves)
+        return(mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SVW)
 
 if __name__ == '__main__':
     # The code below illustrates how to set up a simulation
@@ -811,8 +800,8 @@ if __name__ == '__main__':
 
     f0 = 10e9
     lambda0 = c0/f0
-    E0theta_inc = 0
-    E0phi_inc = 1
+    E0theta_inc = 1
+    E0phi_inc = 0
     theta_inc = np.pi
     phi_inc = 0
     E0theta_ant = 0
@@ -822,6 +811,7 @@ if __name__ == '__main__':
     Nangles = 361
     h = 0.1*lambda0
     PMLcylindrical = True
+    ComputeSVW = False
     
     sphere_case = False
     if sphere_case: 
@@ -839,7 +829,7 @@ if __name__ == '__main__':
         material_epsr = 3*(1 - 0.01j)
         hull_epsr = 100 - 72j
         hfine = h/10
-        PMLpenetrate = True
+        PMLpenetrate = False
         AntennaMetalBase = False
         Antenna = True
         w = 10*lambda0
@@ -865,25 +855,29 @@ if __name__ == '__main__':
                  E0theta_ant=E0theta_ant, E0phi_ant=E0phi_ant,
                  theta_ant=theta_ant, phi_ant=phi_ant,
                  antenna_taper=antenna_taper)
-    mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SphericalVectorWaves = p.ComputeSolutionsAndPostprocess(mvec=[-1, 1], Nangles=Nangles)
+    mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SphericalVectorWaves = p.ComputeSolutionsAndPostprocess(mvec=[-1, 1], Nangles=Nangles, ComputeSVW=ComputeSVW)
 
-    with dolfinx.common.Timer() as t:
-        _, F_theta, F_phi = SphericalVectorWaves.FarFieldCut(theta=scattering_angles, phi=0)
-        print(f'Rank {comm.rank} SVW farfield time: {t.elapsed()[0]}')
-        sys.stdout.flush()
+    if ComputeSVW:
+        with dolfinx.common.Timer() as t:
+            Qs = comm.gather(SphericalVectorWaves.Q, root=model_rank)
+            if comm.rank == model_rank:
+                Q = sum(Qs)
+            else:
+                Q = None
+            Q = comm.bcast(Q, root=model_rank)
+            SphericalVectorWaves.Q = Q
+            if comm.rank == model_rank:
+                _, F_theta, F_phi = SphericalVectorWaves.FarFieldCut(theta=scattering_angles, phi=0)
+            print(f'Rank {comm.rank} SVW farfield time: {t.elapsed()[0]}')
+            sys.stdout.flush()
     
     # Collect far field results from all ranks
     farfields = comm.gather(farfield_amplitudes, root=model_rank)
-    F_thetas = comm.gather(F_theta, root=model_rank)
-    F_phis = comm.gather(F_phi, root=model_rank)
     if comm.rank == model_rank:
         ff = sum(farfields)
-        F_theta = sum(F_thetas)
-        F_phi = sum(F_phis)
     else:
         ff = None
-        F_theta = None
-        F_phi = None
+    ff = comm.bcast(ff, root=model_rank)
     
     if comm.rank == model_rank: # Save some data
         with open('farfield.dat', 'w') as f:
@@ -901,18 +895,11 @@ if __name__ == '__main__':
                     u.interpolate(dolfinx.fem.Expression(ufl.as_vector((E[0], E[1], E[2])), Vspace.element.interpolation_points()))
                     f.write_function(u, n)
 
-    if False: # Visualization of near field
+    if True: # Visualization of near field
         p.PlotField(Esca, Esca_refl, animate=True, filename='E_sca.mp4', clim=[-2, 2])
         p.PlotField(Etot, Etot_refl, animate=True, filename='E_tot.mp4', clim=[-2, 2])
 
     if True: # Plot far fields
-        # Collect far field results from all ranks
-        farfields = comm.gather(farfield_amplitudes, root=model_rank)
-        if comm.rank == model_rank:
-            ff = sum(farfields)
-        else:
-            ff = None
-
         # Plot the results
         if comm.rank == model_rank:
             if sphere_case:
@@ -931,8 +918,9 @@ if __name__ == '__main__':
                 plt.plot(scattering_angles*180/np.pi, np.abs(ff[1,:])**2, label='|F_phi|^2')
                 plt.plot(scattering_angles*180/np.pi, sigma_par, '--', label='dSCS_par')
                 plt.plot(scattering_angles*180/np.pi, sigma_per, '--', label='dSCS_per')
-                plt.plot(scattering_angles*180/np.pi, np.abs(F_theta)**2, '-', label='|F_theta|^2, SVW')
-                plt.plot(scattering_angles*180/np.pi, np.abs(F_phi)**2, '-', label='|F_phi|^2, SVW')
+                if ComputeSVW:
+                    plt.plot(scattering_angles*180/np.pi, np.abs(F_theta)**2, '-', label='|F_theta|^2, SVW')
+                    plt.plot(scattering_angles*180/np.pi, np.abs(F_phi)**2, '-', label='|F_phi|^2, SVW')
                 plt.xlabel('Theta (degrees)')
                 plt.ylabel('Differential SCS (m^2)')
                 plt.legend(loc='best')
@@ -941,8 +929,9 @@ if __name__ == '__main__':
                 plt.figure()
                 plt.plot(scattering_angles*180/np.pi, 10*np.log10(np.abs(ff[0,:])**2), '-', label='|F_theta|^2')
                 plt.plot(scattering_angles*180/np.pi, 10*np.log10(np.abs(ff[1,:])**2), '-', label='|F_phi|^2')
-                plt.plot(scattering_angles*180/np.pi, 10*np.log10(np.abs(F_theta)**2), '--', label='|F_theta|^2 SVW')
-                plt.plot(scattering_angles*180/np.pi, 10*np.log10(np.abs(F_phi)**2), '--', label='|F_phi|^2 SVW')
+                if ComputeSVW:
+                    plt.plot(scattering_angles*180/np.pi, 10*np.log10(np.abs(F_theta)**2), '--', label='|F_theta|^2 SVW')
+                    plt.plot(scattering_angles*180/np.pi, 10*np.log10(np.abs(F_phi)**2), '--', label='|F_phi|^2 SVW')
                 plt.xlabel('Theta (degrees)')
                 plt.ylabel('Differential SCS (dBsm)')
                 plt.legend(loc='best')
