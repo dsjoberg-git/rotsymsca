@@ -120,7 +120,7 @@ if __name__ == '__main__':
     comm = MPI.COMM_WORLD
     model_rank = 0
     theta0 = np.pi/4
-    full_computation = False
+    full_computation = True
     hfactor0 = 0.1
     wfactor0 = 10
     Htransitionfactor0 = 1
