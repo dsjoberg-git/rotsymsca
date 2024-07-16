@@ -34,7 +34,7 @@ This will install other Python packages into the fe2ms environment. ```imageio``
 mamba install scipy matplotlib python-gmsh pyvista pyvistaqt miepython
 pip install imageio[ffmpeg]
 ```
-You also need the package ```sphericalvectorwaves```.
+You also need the package ```sphericalvectorwaves```, which in turn needs ```pip install wigners pyshtools```.
 
 
 ### Install some optional packages

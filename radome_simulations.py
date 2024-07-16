@@ -11,7 +11,7 @@ from scipy.constants import c as c0
 from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d
 
-def compute_radome(pol='theta', antenna_mode=True, theta=np.pi/4, full_computation=True, comm=MPI.COMM_WORLD, model_rank=0, hfactor=0.1, hfinefactor=0.1, wfactor=10, air=False, material_epsr=3*(1-0.01j), hull_epsr=100-72j, Htransitionfactor=1, Hfactor=5, ComputeSVW=False, basefilename=''):
+def compute_radome(pol='theta', antenna_mode=True, theta=np.pi/4, full_computation=True, comm=MPI.COMM_WORLD, model_rank=0, hfactor=0.1, hfinefactor=0.1, wfactor=10, air=False, epsr_radome=3*(1-0.01j), epsr_hull=100-72j, Htransitionfactor=1, Hfactor=5, ComputeSVW=False, basefilename=''):
     f0 = 10e9
     lambda0 = c0/f0
     theta_inc = np.pi - theta
@@ -52,23 +52,26 @@ def compute_radome(pol='theta', antenna_mode=True, theta=np.pi/4, full_computati
     t = 0.1*lambda0
     Nangles = 360*4 + 1
 
-    epsr1 = material_epsr                 # Permittivity of radome
-    epsr2 = hull_epsr                     # Permittivity of CFRP
+    epsr1 = epsr_radome                   # Permittivity of radome
+    epsr2 = epsr_hull                     # Permittivity of CFRP
     d = lambda0/2/np.real(np.sqrt(epsr1)) # Slab thickness
-    v = np.linspace(0, 1, 1000)           # Volume fraction of CFRP
-    epsr = (1 - v)*epsr1 + v*epsr2        # Simple mixing formula
-    n = np.sqrt(epsr)
-    r0 = (1 - n)/(1 + n)
-    p0 = np.exp(-1j*2*np.pi/lambda0*n*d)
-    r = r0*(1 - p0**2)/(1 - r0**2*p0**2)
-    v_of_r = interp1d(np.abs(r)/np.abs(r).max(), v, fill_value='extrapolate')
     Htransition = lambda0*Htransitionfactor
-    transition_volumefraction_hull = lambda x: v_of_r(-x[1]/Htransition)
+    if not epsr1 == epsr2:
+        v = np.linspace(0, 1, 1000)           # Volume fraction of CFRP
+        epsr = (1 - v)*epsr1 + v*epsr2        # Simple mixing formula
+        n = np.sqrt(epsr)
+        r0 = (1 - n)/(1 + n)
+        p0 = np.exp(-1j*2*np.pi/lambda0*n*d)
+        r = r0*(1 - p0**2)/(1 - r0**2*p0**2)
+        v_of_r = interp1d(np.abs(r)/np.abs(r).max(), v, fill_value='extrapolate')
+        transition_volumefraction_hull = lambda x: v_of_r(-x[1]/Htransition)
+    else:
+        transition_volumefraction_hull = None
 
     meshdata = mesh_rotsymradome.CreateMeshOgive(d=d, h=h, hfine=hfine, w=w, PMLcylindrical=PMLcylindrical, PMLpenetrate=PMLpenetrate, AntennaMetalBase=AntennaMetalBase, Antenna=Antenna, t=t, comm=comm, model_rank=model_rank, Htransition=Htransition, H=H, visualize=False)
     
     if not air:
-        p = rotsymsca.RotSymProblem(meshdata, material_epsr=material_epsr, hull_epsr=hull_epsr, transition_volumefraction_hull=transition_volumefraction_hull)
+        p = rotsymsca.RotSymProblem(meshdata, material_epsr=epsr_radome, hull_epsr=epsr_hull, transition_volumefraction_hull=transition_volumefraction_hull)
     else:
         p = rotsymsca.RotSymProblem(meshdata, material_epsr=1.0, hull_epsr=1.0, transition_volumefraction_hull=transition_volumefraction_hull)
     p.Excitation(E0theta_inc=E0theta_inc, E0phi_inc=E0phi_inc,
@@ -83,6 +86,9 @@ def compute_radome(pol='theta', antenna_mode=True, theta=np.pi/4, full_computati
             if comm.rank == model_rank:
                 with open(basefilename + '_ghostfff.txt', 'w') as f:
                     print(f'Ghost facets {ghost_ff_facets}', file=f)
+            if False: # Use this to inspect the mesh if ghost fff detected
+                mesh_rotsymradome.PlotMeshPartition(comm, model_rank, meshdata.mesh, ghost_ff_facets, meshdata.boundaries, meshdata.boundary_markers['farfield'])
+                exit()
 
     if full_computation:
         mvec, Esca, Esca_refl, Etot, Etot_refl, scattering_angles, farfield_amplitudes, SVW = p.ComputeSolutionsAndPostprocess(Nangles=Nangles, ComputeSVW=ComputeSVW)
@@ -122,9 +128,10 @@ if __name__ == '__main__':
     theta0 = np.pi/4
     full_computation = True
     hfactor0 = 0.1
+    hfinefactor0 = 0.099 # May need some tuning to avoid ghost farfield facets
     wfactor0 = 10
     Htransitionfactor0 = 1
-    epsr_radome = 3
+    epsr_radome = 3 - 0j
     epsr_hull = epsr_radome
 
     if True: # Parameter sweep
@@ -132,8 +139,8 @@ if __name__ == '__main__':
             for air in [False, True]:
                 for pol in ['theta', 'phi']:
                     for antenna_mode in [True, False]:
-                        for theta_degrees in [0]:#[0, 10, 20, 30, 40, 50]
+                        for theta_degrees in [0, 10, 20, 30, 40, 50]
                             Hfactor = wfactor/2
                             basefilename = f'data/radome_w{wfactor}_air{air}_pol{pol}_antenna{antenna_mode}_theta{theta_degrees}'
-                            compute_radome(pol=pol, antenna_mode=antenna_mode, theta=theta_degrees*np.pi/180, full_computation=full_computation, comm=comm, model_rank=model_rank, hfactor=hfactor0, hfinefactor=hfactor0, wfactor=wfactor, air=air, Htransitionfactor=Htransitionfactor0, Hfactor=Hfactor, basefilename=basefilename)
+                            compute_radome(pol=pol, antenna_mode=antenna_mode, theta=theta_degrees*np.pi/180, full_computation=full_computation, comm=comm, model_rank=model_rank, hfactor=hfactor0, hfinefactor=hfinefactor0, wfactor=wfactor, air=air, Htransitionfactor=Htransitionfactor0, Hfactor=Hfactor, basefilename=basefilename, epsr_radome=epsr_radome, epsr_hull=epsr_hull)
 
