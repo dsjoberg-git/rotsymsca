@@ -139,7 +139,7 @@ if __name__ == '__main__':
             for air in [False, True]:
                 for pol in ['theta', 'phi']:
                     for antenna_mode in [True, False]:
-                        for theta_degrees in [0, 10, 20, 30, 40, 50]
+                        for theta_degrees in [0, 10, 20, 30, 40, 50]:
                             Hfactor = wfactor/2
                             basefilename = f'data/radome_w{wfactor}_air{air}_pol{pol}_antenna{antenna_mode}_theta{theta_degrees}'
                             compute_radome(pol=pol, antenna_mode=antenna_mode, theta=theta_degrees*np.pi/180, full_computation=full_computation, comm=comm, model_rank=model_rank, hfactor=hfactor0, hfinefactor=hfinefactor0, wfactor=wfactor, air=air, Htransitionfactor=Htransitionfactor0, Hfactor=Hfactor, basefilename=basefilename, epsr_radome=epsr_radome, epsr_hull=epsr_hull)
