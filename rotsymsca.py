@@ -565,7 +565,7 @@ class RotSymProblem():
         if self.material_marker >= 0: # Indicate material region
             V = dolfinx.fem.functionspace(self.mesh, ('DG', 0))
             u = dolfinx.fem.Function(V)
-            material_cells = np.concatenate((self.subdomains.find(self.material_marker), self.subdomains.find(self.transition_marker), self.subdomains.find(self.hull_marker)))
+            material_cells = np.concatenate((self.subdomains.find(self.material_marker), self.subdomains.find(self.transition_marker), self.subdomains.find(self.hull_marker), self.subdomains.find(self.pml_hull_overlap_marker)))
             material_dofs = dolfinx.fem.locate_dofs_topological(V, entity_dim=tdim, entities=material_cells)
             u.x.array[:] = 0
             u.x.array[material_dofs] = 0.25 # Used as opacity value later

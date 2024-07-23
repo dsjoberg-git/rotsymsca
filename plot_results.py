@@ -19,7 +19,7 @@ def ReadData(filename):
     return(theta, ff_theta, ff_phi, ff)
 
 for theta_degrees in [0, 10, 20, 30, 40, 50]: 
-    for wfactor in [10, 20]: 
+    for wfactor in [10]:#[10, 20]: 
         results_scatter = []
         results_antenna = []
         for air in [False, True]:
