@@ -10,6 +10,7 @@ import mesh_rotsymradome
 from scipy.constants import c as c0
 from matplotlib import pyplot as plt
 from scipy.interpolate import interp1d
+import os.path
 
 def compute_radome(pol='theta', antenna_mode=True, theta=np.pi/4, full_computation=True, comm=MPI.COMM_WORLD, model_rank=0, hfactor=0.1, hfinefactor=0.1, wfactor=10, air=False, epsr_radome=3*(1-0.01j), epsr_hull=100-72j, Htransitionfactor=1, Hfactor=5, ComputeSVW=False, basefilename=''):
     f0 = 10e9
@@ -142,5 +143,8 @@ if __name__ == '__main__':
                         for theta_degrees in [0, 10, 20, 30, 40, 50]:
                             Hfactor = wfactor/2
                             basefilename = f'data/radome_w{wfactor}_air{air}_pol{pol}_antenna{antenna_mode}_theta{theta_degrees}'
-                            compute_radome(pol=pol, antenna_mode=antenna_mode, theta=theta_degrees*np.pi/180, full_computation=full_computation, comm=comm, model_rank=model_rank, hfactor=hfactor0, hfinefactor=hfinefactor0, wfactor=wfactor, air=air, Htransitionfactor=Htransitionfactor0, Hfactor=Hfactor, basefilename=basefilename, epsr_radome=epsr_radome, epsr_hull=epsr_hull)
+                            if os.path.isfile(basefilename + '_farfield.txt'):
+                                print(f'Rank {comm.rank}: skipping ' + basefilename)
+                            else:
+                                compute_radome(pol=pol, antenna_mode=antenna_mode, theta=theta_degrees*np.pi/180, full_computation=full_computation, comm=comm, model_rank=model_rank, hfactor=hfactor0, hfinefactor=hfinefactor0, wfactor=wfactor, air=air, Htransitionfactor=Htransitionfactor0, Hfactor=Hfactor, basefilename=basefilename, epsr_radome=epsr_radome, epsr_hull=epsr_hull)
 
