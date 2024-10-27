@@ -1,6 +1,6 @@
 # Script to run verification cases for rotsymsca.py
 #
-# Daniel Sjöberg, 2024-07-07
+# Daniel Sjöberg, 2024-10-27
 
 from mpi4py import MPI
 import numpy as np
@@ -9,6 +9,10 @@ import mesh_rotsymradome
 from scipy.constants import c as c0
 from matplotlib import pyplot as plt
 import miepython
+
+plt.rc('lines', linewidth=2)
+plt.rc('font', size=12)
+plt.rc('text', usetex=True)
 
 def compute_sphere(a, f0, epsr, pol, h, full_computation=False, comm=MPI.COMM_WORLD, model_rank=0):
     lambda0 = c0/f0
@@ -104,26 +108,29 @@ if __name__ == '__main__':
     full_computation = False
     f0 = 10e9
     lambda0 = c0/f0
-    a = 0.5*lambda0
+    avec = [0.5*lambda0, 3*lambda0]
     polvec = ['theta', 'phi']
     epsrvec = [-1, 3*(1 - 0.01j)]
-    for epsr in epsrvec:
-        for pol in polvec:
-            if np.real(epsr) < 0:
-                mat = 'pec'
-                if pol == 'theta':
-                    title = 'PEC sphere E-plane'
+    for a in avec:
+        radius = f'{a/lambda0}lambda'
+        for epsr in epsrvec:
+            for pol in polvec:
+                if np.real(epsr) < 0:
+                    mat = 'pec'
+                    if pol == 'theta':
+                        title = 'PEC sphere E-plane'
+                    else:
+                        title = 'PEC sphere H-plane'
                 else:
-                    title = 'PEC sphere H-plane'
-            else:
-                mat = 'dielectric'
-                if pol == 'theta':
-                    title = 'Dielectric sphere E-plane'
-                else:
-                    title = 'Dielectric sphere H-plane'
-            verification(comm=comm, model_rank=model_rank, f0=f0, a=a, epsr=epsr, pol=pol, title=title, full_computation=full_computation)
-            if comm.rank == model_rank:
-                plt.savefig(f'verification_figs/verification_test_{mat}_{pol}.pdf')
+                    mat = 'dielectric'
+                    if pol == 'theta':
+                        title = 'Dielectric sphere E-plane'
+                    else:
+                        title = 'Dielectric sphere H-plane'
+                title = '' # No title
+                verification(comm=comm, model_rank=model_rank, f0=f0, a=a, epsr=epsr, pol=pol, title=title, full_computation=full_computation)
+                if comm.rank == model_rank:
+                    plt.savefig(f'verification_figures/verification_{radius}_{mat}_{pol}.pdf')
     if comm.rank == model_rank:
         plt.show()
     

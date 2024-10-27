@@ -19,13 +19,15 @@ def ReadData(filename):
     return(theta, ff_theta, ff_phi, ff)
 
 for theta_degrees in [0, 10, 20, 30, 40, 50]: 
-    for wfactor in [10]:#[10, 20]: 
+    for wfactor in [10, 20]: 
+#for theta_degrees in [0, 30, 50]: 
+#    for wfactor in [30]:
         results_scatter = []
         results_antenna = []
         for air in [False, True]:
             for pol in ['theta', 'phi']:
                 for antenna_mode in [True, False]:
-                    filename = f'data/radome_w{wfactor}_air{air}_pol{pol}_antenna{antenna_mode}_theta{theta_degrees}_farfield.txt'
+                    filename = f'../data/data/radome_w{wfactor}_air{air}_pol{pol}_antenna{antenna_mode}_theta{theta_degrees}_farfield.txt'
                     label = fr'pol = $\{pol}$, radome = {air^True}'
                     if antenna_mode:
                         results_antenna.append((filename, label))
