@@ -3,7 +3,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
 \usepackage{graphicx}
-\graphicspath{{figures/}}
+\graphicspath{{figures/},{figures/verification_figures},{figures/results_figures},{figures/nearfield_figures}}
 \usepackage{tikz}
 \usepackage{hyperref}
 \hypersetup{
@@ -526,11 +526,11 @@ Figure~\ref{fig:hconvergence_Hplane}.
 \begin{figure}
   \begin{center}
     \begin{tabular}{cc}
-      \includegraphics[width=0.45\textwidth]{hconvergence_mediumpecsphere_Eplane} &
-      \includegraphics[width=0.45\textwidth]{hconvergence_largepecsphere_Eplane} \\
+      \includegraphics[width=0.45\textwidth]{verification_0.5lambda_pec_theta} &
+      \includegraphics[width=0.45\textwidth]{verification_3.0lambda_pec_theta} \\
       (a) & (b) \\
-      \includegraphics[width=0.45\textwidth]{hconvergence_mediumlossysphere_Eplane} &
-      \includegraphics[width=0.45\textwidth]{hconvergence_largelossysphere_Eplane} \\
+      \includegraphics[width=0.45\textwidth]{verification_0.5lambda_dielectric_theta} &
+      \includegraphics[width=0.45\textwidth]{verification_3.0lambda_dielectric_theta} \\
       (c) & (d) 
     \end{tabular}
   \end{center}
@@ -545,11 +545,11 @@ Figure~\ref{fig:hconvergence_Hplane}.
 \begin{figure}
   \begin{center}
     \begin{tabular}{cc}
-      \includegraphics[width=0.45\textwidth]{hconvergence_mediumpecsphere_Hplane} &
-      \includegraphics[width=0.45\textwidth]{hconvergence_largepecsphere_Hplane} \\
+      \includegraphics[width=0.45\textwidth]{verification_0.5lambda_pec_phi} &
+      \includegraphics[width=0.45\textwidth]{verification_3.0lambda_pec_phi} \\
       (a) & (b) \\
-      \includegraphics[width=0.45\textwidth]{hconvergence_mediumlossysphere_Hplane} &
-      \includegraphics[width=0.45\textwidth]{hconvergence_largelossysphere_Hplane} \\
+      \includegraphics[width=0.45\textwidth]{verification_0.5lambda_dielectric_phi} &
+      \includegraphics[width=0.45\textwidth]{verification_3.0lambda_dielectric_phi} \\
       (c) & (d) 
     \end{tabular}
   \end{center}
@@ -563,11 +563,6 @@ Figure~\ref{fig:hconvergence_Hplane}.
 
 \section{Application to a radome geometry}
 
-We analyze an ogive-shaped radome, which is a common design for a nose
-cone radome, see Figure~\ref{fig:ogiveradome_geometry}. This design
-has several features of a realistic radome, such as a pointed tip and
-non-uniform wall thickness.
-
 \begin{figure}
   \begin{center}
     \begin{tikzpicture}[>=latex]
@@ -578,12 +573,12 @@ non-uniform wall thickness.
       \pgfmathsetmacro{\epsr}{3}
       \pgfmathsetmacro{\d}{\lda/2/sqrt(\epsr)}
       \pgfmathsetmacro{\da}{\lda/2}
-      \pgfmathsetmacro{\Ra}{\w/2+\da}
-      \pgfmathsetmacro{\La}{\Ra*\ogivefactor}
-      \pgfmathsetmacro{\ra}{(\Ra^2 + \La^2)/(2*\Ra)}
       \pgfmathsetmacro{\Rb}{\w/2 + \da + \d}
       \pgfmathsetmacro{\Lb}{\Rb*\ogivefactor}
       \pgfmathsetmacro{\rb}{(\Rb^2 + \Lb^2)/(2*\Rb)}
+      \pgfmathsetmacro{\Ra}{\Rb - \d}
+      \pgfmathsetmacro{\ra}{\rb - \d}
+      \pgfmathsetmacro{\La}{sqrt(\ra^2 - (\rb - \Rb)^2)}
       \draw[smooth, samples=100, domain=0:1.0001] plot({sqrt(\ra^2-(\La*\x)^2) + \Ra - \ra}, \La*\x);
       \draw[smooth, samples=100, domain=0:1.0001] plot({sqrt(\rb^2-(\Lb*\x)^2) + \Rb - \rb}, \Lb*\x);
       \draw[smooth, samples=100, domain=0:1.001] plot({-(sqrt(\ra^2-(\La*\x)^2) + \Ra - \ra)}, \La*\x);
@@ -619,15 +614,18 @@ non-uniform wall thickness.
   \label{fig:ogiveradome_geometry}
 \end{figure}
 
-The baseline parameters of the radome, corresponding to
+We analyze an ogive-shaped radome, which is a common design for a nose
+cone radome, see Figure~\ref{fig:ogiveradome_geometry}. This design
+has several features of a realistic radome, in particular a pointed
+tip. The baseline parameters of the radome, corresponding to
 Figure~\ref{fig:ogiveradome_geometry}, are chosen as
 \begin{itemize}
 \item $f_{0} = 10\unit{GHz}$ (frequency)
 \item $\lambda_{0} = \cu/f_{0}$ (wavelength)
 \item $w = 10\lambda_{0} = 0.300\unit{m}$ (diameter of antenna)
 \item $d_{0} = \lambda_{0}/2 = 0.0150\unit{m}$ (distance from antenna to radome)
-\item $\epsilon_{\mrm{r}} = 3(1-0.01\ju)$ (relative permittivity of radome)
-\item $d = \lambda_{0}/(2\Re\sqrt{\epsilon_{\mrm{r}}}) = 8.7\unit{mm}$
+\item $\epsilon_{\mrm{r}} = 3$ (relative permittivity of radome, lossless)
+\item $d = \lambda_{0}/(2\sqrt{\epsilon_{\mrm{r}}}) = 8.7\unit{mm}$
   (thickness of radome)
 \item $\alpha = 2$ (ogive shape factor)
 \item $R_{\mrm{a}} = w/2 + d_{0} = 0.165\unit{m}$
@@ -638,105 +636,145 @@ Figure~\ref{fig:ogiveradome_geometry}, are chosen as
 \item $\rho_{\mrm{b}} = (R_{\mrm{b}}^{2} + L_{\mrm{b}}^{2})/(2R_{\mrm{b}}) = 0.434\unit{m}$
 \item $H = 5\lambda_{0} = 0.150\unit{m}$
 \end{itemize}
-The antenna is implemented as a circular antenna with a
-cosine-tapering in the radial direction, that is, the antenna field is
+The antenna is implemented as a circular antenna with thickness
+$0.1\lambda_{0}$ and a cosine-tapering in the radial direction, that
+is, the antenna field is
 \begin{equation}
   \Ev_{\mrm{a}}(\rv) = \Ev_{0}\eu^{-\ju\kv\cdot\rv}\cos(\pi\rho/w), \quad \rv\in\Gamma_{\mrm{ant}}
 \end{equation}
 where the expression for a plane wave in \eqref{eq:planewave} is used
 to express $\Ev_{0}\eu^{-\ju\kv\cdot\rv}$ in azimuthal modes. The
 baseline antenna is ten wavelengths in diameter, making the radiation
-highly directive. In Figure~\ref{fig:radomeresults}, far field
-patterns for antenna excitation and scattering of a plane wave are
-given. In Figures~\ref{fig:nearfield_ant}, \ref{fig:nearfield_sca},
-and \ref{fig:nearfield_tot}, near field distributions are shown.
+highly directive.
+
+
+\subsection{Parameter variations}
+
+From the baseline geometry we make a number of parameter variations in
+the simulations:
+\begin{itemize}
+\item Electric field in $\theta$ (TM, in plane) or $\phi$ (TE, out of
+  plane) polarization.
+\item Angle of incidence $\theta\in[0^{\circ},10^{\circ},20^{\circ},30^{\circ},40^{\circ},50^{\circ}]$.
+\item With and without radome.
+\item Either with a transmitting antenna or scattering from an
+  incident plane wave.
+\item Antenna width
+  $w\in[10\lambda_{0},20\lambda_{0},30\lambda_{0}]$. Note that the
+  radome thickness is $\lambda_{0}/(2\sqrt{\epsilon_{\mrm{r}}})$ in
+  all cases, that is, the radome is always transparent.
+\end{itemize}
+All combinations of these parameters are run, except for
+$w=30\lambda_{0}$ where the angles are reduced to
+$\theta\in[0^{\circ},30^{\circ},50^{\circ}]$ (this simulation took
+about as long as all the others together, a bit more than one week on
+an ordinary desktop computer).
+
+\subsection{Results}
+
+\newlength{\myfigwidth}
+\setlength{\myfigwidth}{0.5\linewidth}
+
+\begin{figure}
+  \begin{center}
+    \begin{tabular}{ccc}
+      \includegraphics[width=0.3\linewidth]{nearfield_scattering_theta30_w10} &
+      \includegraphics[width=0.3\linewidth]{nearfield_scattering_theta30_w20} &
+      \includegraphics[width=0.3\linewidth]{nearfield_scattering_theta30_w30} \\
+      \includegraphics[width=0.3\linewidth]{nearfield_transmitting_theta30_w10} &
+      \includegraphics[width=0.3\linewidth]{nearfield_transmitting_theta30_w20} &
+      \includegraphics[width=0.3\linewidth]{nearfield_transmitting_theta30_w30} 
+    \end{tabular}
+  \end{center}
+  \caption{Near field plots of scattered field when subjected to an
+    incident plane wave from $\theta=30^{\circ}$ (top row) and total
+    field with transmitting antenna towards $\theta=30^{\circ}$
+    (bottom row) from antenna with and without radome, antenna widths
+    $w=10\lambda_{0},20\lambda_{0},30\lambda_{0}$ (from left to
+    right).}
+  \label{fig:nearfields}
+\end{figure}
+
 
 \begin{figure}
   \begin{center}
     \begin{tabular}{cc}
-      \includegraphics[width=7cm]{ant_phi} & 
-      \includegraphics[width=7cm]{ant_theta} \\
-      (a) & (b) \\
-      \includegraphics[width=7cm]{sca_phi} & 
-      \includegraphics[width=7cm]{sca_theta} \\
-      (c) & (d)
+      \includegraphics[width=\myfigwidth]{scattering_w10_theta0} &
+      \includegraphics[width=\myfigwidth]{scattering_w10_theta10} \\
+      \includegraphics[width=\myfigwidth]{scattering_w10_theta20} &
+      \includegraphics[width=\myfigwidth]{scattering_w10_theta30} \\
+      \includegraphics[width=\myfigwidth]{scattering_w10_theta40} &
+      \includegraphics[width=\myfigwidth]{scattering_w10_theta50} 
     \end{tabular}
   \end{center}
-  \caption{Results from simulations of an antenna covered by an ogive
-    shaped radome. (a) Antenna transmitting at $45^{\circ}$ in $\phi$
-    polarization, (b) antenna transmitting at $45^{\circ}$ in $\theta$
-    polarization, (c) scattering with incident field from $45^{\circ}$
-    in $\phi$ polarization, and (d) scattering with incident fielf
-    from $45^{\circ}$ in $\theta$ polarization.}
-  \label{fig:radomeresults}
+  \caption{Scattering from antenna with and without radome, antenna
+    width $w=10\lambda_{0}$.}
+  \label{fig:scatteringw10}
 \end{figure}
 
 \begin{figure}
   \begin{center}
     \begin{tabular}{cc}
-      \includegraphics[width=7cm]{freestanding_nearfield_ant_phi} &
-      \includegraphics[width=7cm]{freestanding_nearfield_ant_theta} \\
-      (a) & (b) \\
-      \includegraphics[width=7cm]{penetrate_nearfield_ant_phi} &
-      \includegraphics[width=7cm]{penetrate_nearfield_ant_theta} \\
-      (c) & (d) \\
-      \includegraphics[width=7cm]{metalbase_nearfield_ant_phi} &
-      \includegraphics[width=7cm]{metalbase_nearfield_ant_theta} \\
-      (e) & (f) 
+      \includegraphics[width=\myfigwidth]{transmitting_w10_theta0} &
+      \includegraphics[width=\myfigwidth]{transmitting_w10_theta10} \\
+      \includegraphics[width=\myfigwidth]{transmitting_w10_theta20} &
+      \includegraphics[width=\myfigwidth]{transmitting_w10_theta30} \\
+      \includegraphics[width=\myfigwidth]{transmitting_w10_theta40} &
+      \includegraphics[width=\myfigwidth]{transmitting_w10_theta50} 
     \end{tabular}
   \end{center}
-  \caption{Near field plots of antenna excitations. Left column:
-    $\phi$ polarization, right column: $\theta$ polarization. First
-    row: freestanding radome, second row: radome penetrates the PML,
-    third row: antenna and radome attached to metal block penetrating
-    the PML.}
-  \label{fig:nearfield_ant}
+  \caption{Transmission from antenna with and without radome, antenna
+    width $w=10\lambda_{0}$.}
+  \label{fig:transmissionw10}
 \end{figure}
 
 \begin{figure}
   \begin{center}
     \begin{tabular}{cc}
-      \includegraphics[width=7cm]{freestanding_nearfield_sca_phi} &
-      \includegraphics[width=7cm]{freestanding_nearfield_sca_theta} \\
-      (a) & (b) \\
-      \includegraphics[width=7cm]{penetrate_nearfield_sca_phi} &
-      \includegraphics[width=7cm]{penetrate_nearfield_sca_theta} \\
-      (c) & (d) \\
-      \includegraphics[width=7cm]{metalbase_nearfield_sca_phi} &
-      \includegraphics[width=7cm]{metalbase_nearfield_sca_theta} \\
-      (e) & (f) 
+      \includegraphics[width=\myfigwidth]{scattering_w20_theta0} &
+      \includegraphics[width=\myfigwidth]{scattering_w20_theta10} \\
+      \includegraphics[width=\myfigwidth]{scattering_w20_theta20} &
+      \includegraphics[width=\myfigwidth]{scattering_w20_theta30} \\
+      \includegraphics[width=\myfigwidth]{scattering_w20_theta40} &
+      \includegraphics[width=\myfigwidth]{scattering_w20_theta50} 
     \end{tabular}
   \end{center}
-  \caption{Near field plots of plane wave excitations, scattered
-    field. Left column: $\phi$ polarization, right column: $\theta$
-    polarization. First row: freestanding radome, second row: radome
-    penetrates the PML, third row: antenna and radome attached to
-    metal block penetrating the PML.}
-  \label{fig:nearfield_sca}
+  \caption{Scattering from antenna with and without radome, antenna
+    width $w=20\lambda_{0}$.}
+  \label{fig:scatteringw20}
 \end{figure}
 
 \begin{figure}
   \begin{center}
     \begin{tabular}{cc}
-      \includegraphics[width=7cm]{freestanding_nearfield_tot_phi} &
-      \includegraphics[width=7cm]{freestanding_nearfield_tot_theta} \\
-      (a) & (b) \\
-      \includegraphics[width=7cm]{penetrate_nearfield_tot_phi} & \\
-%      \includegraphics[width=7cm]{penetrate_nearfield_tot_theta} \\
-      (c) & (d) \\
-      \includegraphics[width=7cm]{metalbase_nearfield_tot_phi} &
-      \includegraphics[width=7cm]{metalbase_nearfield_tot_theta} \\
-      (e) & (f) 
+      \includegraphics[width=\myfigwidth]{transmitting_w20_theta0} &
+      \includegraphics[width=\myfigwidth]{transmitting_w20_theta10} \\
+      \includegraphics[width=\myfigwidth]{transmitting_w20_theta20} &
+      \includegraphics[width=\myfigwidth]{transmitting_w20_theta30} \\
+      \includegraphics[width=\myfigwidth]{transmitting_w20_theta40} &
+      \includegraphics[width=\myfigwidth]{transmitting_w20_theta50} 
     \end{tabular}
   \end{center}
-  \caption{Near field plots of plane wave excitations, total
-    field. Left column: $\phi$ polarization, right column: $\theta$
-    polarization. First row: freestanding radome, second row: radome
-    penetrates the PML, third row: antenna and radome attached to
-    metal block penetrating the PML. For some reason, the generation
-    of case (d) failed ($\theta$ polarization, radome penetrating the
-    PML).}
-  \label{fig:nearfield_tot}
+  \caption{Transmission from antenna with and without radome, antenna
+    width $w=20\lambda_{0}$.}
+  \label{fig:transmissionw20}
+\end{figure}
+
+\begin{figure}
+  \begin{center}
+    \begin{tabular}{cc}
+      \includegraphics[width=\myfigwidth]{scattering_w30_theta0} &
+      \includegraphics[width=\myfigwidth]{transmitting_w30_theta0} \\
+      \includegraphics[width=\myfigwidth]{scattering_w30_theta30} &
+      \includegraphics[width=\myfigwidth]{transmitting_w30_theta30} \\
+      \includegraphics[width=\myfigwidth]{scattering_w30_theta50} &
+      \includegraphics[width=\myfigwidth]{transmitting_w30_theta50} 
+    \end{tabular}
+  \end{center}
+  \caption{Scattering (left column) and transmission (right column)
+    from antenna with and without radome, antenna width
+    $w=30\lambda_{0}$.}
+  \label{fig:scatteringtransmissionw30}
 \end{figure}
 
 
@@ -917,8 +955,8 @@ direction $(\theta,\phi)$.
 
 
 
-\bibliography{add,total}
-\bibliographystyle{teorel}
+\bibliography{refs}
+\bibliographystyle{IEEEtran}
 \end{document}
 
 
