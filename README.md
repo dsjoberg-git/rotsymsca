@@ -32,7 +32,7 @@ The option ```python=3.12``` is due to ```pyshtools``` which is installed later.
 This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. The package ```miepython``` is only used to run the verification case of scattering against a sphere. 
 
 ```bash
-mamba install python=3.12 scipy matplotlib python-gmsh pyvista pyvistaqt miepython
+mamba install scipy matplotlib python-gmsh pyvista pyvistaqt miepython
 pip install imageio[ffmpeg]
 ```
 You also need the file ```sphericalvectorwaves.py``` from https://github.com/dsjoberg-git/sphericalvectorwaves, which in turn needs ```pip install wigners pyshtools```.
