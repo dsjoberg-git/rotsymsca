@@ -23,18 +23,19 @@ mamba activate rotsymsca
 Having activated the fe2ms environment, the following will install fenicsx there.
 
 ```bash
-mamba install fenics-dolfinx mpich petsc=*=complex*
+mamba install python=3.12 fenics-dolfinx mpich petsc=*=complex*
 ```
+The option ```python=3.12``` is due to ```pyshtools``` which is installed later.
 
 ### Install other Python packages
 
-This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. The package ```miepython``` is only used to run the verification case of scattering against a sphere.
+This will install other Python packages into the fe2ms environment. ```imageio``` seems to need to be installed through pip instead of mamba. The package ```miepython``` is only used to run the verification case of scattering against a sphere. 
 
 ```bash
-mamba install scipy matplotlib python-gmsh pyvista pyvistaqt miepython
+mamba install python=3.12 scipy matplotlib python-gmsh pyvista pyvistaqt miepython
 pip install imageio[ffmpeg]
 ```
-You also need the package ```sphericalvectorwaves```, which in turn needs ```pip install wigners pyshtools```.
+You also need the file ```sphericalvectorwaves.py``` from https://github.com/dsjoberg-git/sphericalvectorwaves, which in turn needs ```pip install wigners pyshtools```.
 
 
 ### Install some optional packages
