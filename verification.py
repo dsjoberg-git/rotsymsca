@@ -9,6 +9,7 @@ import mesh_rotsymradome
 from scipy.constants import c as c0
 from matplotlib import pyplot as plt
 import miepython
+import os
 
 plt.rc('lines', linewidth=2)
 plt.rc('font', size=12)
@@ -130,6 +131,8 @@ if __name__ == '__main__':
                 title = '' # No title
                 verification(comm=comm, model_rank=model_rank, f0=f0, a=a, epsr=epsr, pol=pol, title=title, full_computation=full_computation)
                 if comm.rank == model_rank:
+                    if not os.path.isdir('verification_figures'):
+                        os.makedirs('verification_figures')
                     plt.savefig(f'verification_figures/verification_{radius}_{mat}_{pol}.pdf')
     if comm.rank == model_rank:
         plt.show()
